@@ -556,14 +556,16 @@ func onboardingBody(hasWorkflow, hasCred, hasRun bool) string {
 
 	b.WriteString(step(1, true, "Daemon up", `<p>If you're reading this page the daemon's HTTP listener is alive. Healthz lives at <a href="/healthz"><code>/healthz</code></a>.</p>`))
 
-	b.WriteString(step(2, false, "Connect your AI client", `
-<p>Install the reactor MCP server into your client of choice. Each command prints a JSON snippet you paste into the client's config:</p>
-<pre>reactor mcp install --client claude-desktop
-reactor mcp install --client claude-code
+	b.WriteString(step(2, false, "Connect your AI coding client", `
+<p>Reactor's builder is <strong>your</strong> AI coding CLI (Claude Code or Codex), not a server-side API key: the client reads your live environment over MCP and writes the workflow Go. Install the reactor MCP server; each command prints the config snippet to paste in:</p>
+<pre>reactor mcp install --client claude-code   # Claude Code (.claude/settings.json)
+reactor mcp install --client codex         # Codex CLI (~/.codex/config.toml)
+reactor mcp install --client claude-desktop
 reactor mcp install --client cursor
 reactor mcp install --client continue
 reactor mcp install --client cline</pre>
-<p>Restart the client. <code>tools/list</code> should now show <code>reactor_search_knowledge</code>, <code>reactor_query_graph</code>, plus the read tools.</p>`))
+<p>Add <code>--allow-write</code> to register the authoring tools (<code>reactor_create_workflow</code>, <code>reactor_grant_secret</code>, <code>reactor_dispatch_workflow</code>). Restart the client; <code>tools/list</code> should now show the reactor tools.</p>
+<p class="muted">The in-dashboard prompt bar (a convenience that builds server-side) is optional and only appears when <code>ANTHROPIC_API_KEY</code> is set. You do not need it: the CLI-over-MCP path above is the primary one.</p>`))
 
 	b.WriteString(step(3, hasCred, "Add your first credential", `
 <p>Workflows that hit external APIs need a vault credential. Add one from the CLI:</p>

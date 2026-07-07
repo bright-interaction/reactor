@@ -991,8 +991,10 @@ func homeBody(d homeData) string {
 			d.WorkerCount, d.WorkerCapacity, d.Analytics.RunsByStatus["queued"])
 	}
 	b.WriteString(renderAnalyticsStrip(d.Analytics))
+	b.WriteString(`<h2>Author a workflow</h2>`)
+	b.WriteString(`<p>Reactor's builder is your AI coding client. Ask <strong>Claude Code</strong> or <strong>Codex</strong> (connected over MCP with <code>--allow-write</code>) something like "build a Reactor workflow that emails a welcome message when a webhook fires" and it writes + registers the Go. New here? See the <a href="/onboarding">setup walkthrough</a> (2 commands).</p>`)
 	if d.GeneratorEnabled {
-		b.WriteString(`<h2>Generate a workflow</h2>`)
+		b.WriteString(`<h3>Or generate it here (optional)</h3>`)
 		b.WriteString(`<form method="POST" action="/generate" class="form">
   <label>Brief
     <textarea name="brief" rows="5" required placeholder="Describe in plain English what the workflow should do. Reference credentials by name (e.g. crm-api-key) so the generated code can vault.MustGet() them at run time."></textarea>
@@ -1004,7 +1006,7 @@ func homeBody(d homeData) string {
 	b.WriteString(`<h2>Workflows</h2>`)
 	b.WriteString(`<p><a href="/workflows/new" class="btn-secondary">Upload workflow (tar.gz)</a></p>`)
 	if len(d.Workflows) == 0 {
-		b.WriteString(`<p class="empty">No workflows registered. Use the Generate form above (if enabled) or upload a tarball.</p>`)
+		b.WriteString(`<p class="empty">No workflows yet. Ask your connected AI client (Claude Code / Codex) to build one over MCP, scaffold with <code>reactor new</code>, or upload a tarball.</p>`)
 	} else {
 		b.WriteString(`<table><thead><tr><th>Slug</th><th>ID</th><th>SDK</th><th>Binary</th><th>Updated</th><th></th></tr></thead><tbody>`)
 		for _, w := range d.Workflows {

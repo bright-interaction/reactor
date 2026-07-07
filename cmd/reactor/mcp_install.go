@@ -8,14 +8,28 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// codexTOMLSnippet renders the Codex CLI MCP config block. Codex reads
+// ~/.codex/config.toml and registers stdio MCP servers as [mcp_servers.<name>]
+// with a command + args array (TOML), unlike the mcpServers-JSON clients.
+func codexTOMLSnippet(bin string, cmdArgs []string) string {
+	quoted := make([]string, len(cmdArgs))
+	for i, a := range cmdArgs {
+		quoted[i] = strconv.Quote(a)
+	}
+	return fmt.Sprintf("[mcp_servers.reactor]\ncommand = %s\nargs = [%s]\n",
+		strconv.Quote(bin), strings.Join(quoted, ", "))
+}
 
 // availableClients is the list shown in usage + accepted by --client.
 var availableClients = []string{
 	"claude-desktop",
 	"claude-code",
+	"codex",
 	"cursor",
 	"continue",
 	"cline",
@@ -64,6 +78,18 @@ func cmdMCPInstall(args []string) error {
 	}
 	if *allowWrite {
 		cmdArgs = append(cmdArgs, "--allow-write")
+	}
+
+	// Codex CLI reads ~/.codex/config.toml (TOML, not JSON), so it takes a
+	// different snippet shape than the mcpServers-JSON clients.
+	if *client == "codex" {
+		if *apply {
+			return errors.New("mcp install: --apply is not supported for codex (paste the TOML block into ~/.codex/config.toml manually)")
+		}
+		fmt.Println("# reactor MCP snippet for codex")
+		fmt.Println("# (paste into ~/.codex/config.toml, merging with any existing [mcp_servers.*] tables)")
+		fmt.Print(codexTOMLSnippet(bin, cmdArgs))
+		return nil
 	}
 
 	snippet, configPath, err := buildSnippet(*client, bin, cmdArgs)

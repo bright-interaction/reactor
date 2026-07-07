@@ -40,6 +40,15 @@ func TestMCPInstallEachClientPrintsValidJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("install %s: %v", c, err)
 			}
+			// Codex uses ~/.codex/config.toml (TOML), not the mcpServers JSON.
+			if c == "codex" {
+				for _, want := range []string{"[mcp_servers.reactor]", "command = ", "args = ["} {
+					if !strings.Contains(out, want) {
+						t.Fatalf("codex output missing %q\n--output--\n%s", want, out)
+					}
+				}
+				return
+			}
 			// Strip the comment header lines so json.Unmarshal sees valid JSON.
 			body := stripComments(out)
 			var any interface{}
