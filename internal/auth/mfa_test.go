@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -160,6 +161,47 @@ func TestTOTPEnrollConfirmVerify(t *testing.T) {
 	}
 	if ok, _ := s.HasConfirmedTOTP(ctx, uid); ok {
 		t.Fatal("TOTP still confirmed after disable")
+	}
+}
+
+// TestVerifyTOTPConcurrentReplay guards the TOCTOU fix: many concurrent
+// verifications of the SAME valid code must let exactly one through (the
+// guarded conditional UPDATE claims the step atomically).
+func TestVerifyTOTPConcurrentReplay(t *testing.T) {
+	s, done := newTestStoreMFA(t)
+	defer done()
+	ctx := context.Background()
+	uid, _ := s.CreateUser(ctx, "alice", "secret-pass", RoleAdmin)
+	u, _ := s.GetUser(ctx, uid)
+	secret, _, err := s.BeginTOTPEnrollment(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := totp.ValidateOpts{Period: totpPeriod, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1}
+	confirm, _ := totp.GenerateCodeCustom(secret, time.Now().Add(-totpPeriod*time.Second), opts)
+	if err := s.ConfirmTOTP(ctx, uid, confirm); err != nil {
+		t.Fatal(err)
+	}
+	code, _ := totp.GenerateCodeCustom(secret, time.Now(), opts)
+
+	const n = 8
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	successes := 0
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, _ := s.VerifyTOTP(ctx, uid, code); ok {
+				mu.Lock()
+				successes++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if successes != 1 {
+		t.Fatalf("concurrent same-code verify succeeded %d times, want exactly 1", successes)
 	}
 }
 

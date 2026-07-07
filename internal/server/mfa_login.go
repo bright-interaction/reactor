@@ -116,12 +116,19 @@ func (s *Server) mfaLoginTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = r.ParseForm()
 	next := safeNextPath(r.PostFormValue("next"))
+	throttleKey := clientIP(r) + "|mfa|" + me.ID
+	if s.loginThrottle().locked(throttleKey) {
+		s.renderMFAError(w, r, next, "Too many attempts. Wait 15 minutes and try again.")
+		return
+	}
 	code := strings.TrimSpace(r.PostFormValue("code"))
 	ok, err := s.Auth.VerifyTOTP(r.Context(), me.ID, code)
 	if err != nil || !ok {
+		s.loginThrottle().recordFailure(throttleKey)
 		s.renderMFAError(w, r, next, "That code did not match. Try again.")
 		return
 	}
+	s.loginThrottle().reset(throttleKey)
 	if err := s.Auth.ClearSessionMFAPending(r.Context(), sessionCookieFromContext(r.Context())); err != nil {
 		s.errorPage(w, "complete sign-in", err)
 		return
@@ -137,12 +144,19 @@ func (s *Server) mfaLoginRecovery(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = r.ParseForm()
 	next := safeNextPath(r.PostFormValue("next"))
+	throttleKey := clientIP(r) + "|mfa|" + me.ID
+	if s.loginThrottle().locked(throttleKey) {
+		s.renderMFAError(w, r, next, "Too many attempts. Wait 15 minutes and try again.")
+		return
+	}
 	code := r.PostFormValue("code")
 	ok, err := s.Auth.ConsumeRecoveryCode(r.Context(), me.ID, code)
 	if err != nil || !ok {
+		s.loginThrottle().recordFailure(throttleKey)
 		s.renderMFAError(w, r, next, "That recovery code is not valid or has already been used.")
 		return
 	}
+	s.loginThrottle().reset(throttleKey)
 	if err := s.Auth.ClearSessionMFAPending(r.Context(), sessionCookieFromContext(r.Context())); err != nil {
 		s.errorPage(w, "complete sign-in", err)
 		return

@@ -168,6 +168,42 @@ func TestMFALoginFlowGatesPendingSession(t *testing.T) {
 	}
 }
 
+// TestBasicAuthRefusedForMFAUser guards the critical fix: HTTP Basic (single
+// factor) must not satisfy a request for a user who owes a second factor, while
+// a user without MFA can still use Basic.
+func TestBasicAuthRefusedForMFAUser(t *testing.T) {
+	base, store, _, _, cleanup := newMFAServer(t)
+	defer cleanup()
+	cl := noRedirectClient()
+
+	// alice has a confirmed TOTP factor -> Basic must be refused.
+	req, _ := http.NewRequest(http.MethodGet, base+"/runs", nil)
+	req.SetBasicAuth("alice", "secret-pass")
+	req.Header.Set("Accept", "application/json")
+	resp, err := cl.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("Basic for MFA-enrolled user status = %d, want 401", resp.StatusCode)
+	}
+
+	// A user WITHOUT a factor can still authenticate via Basic.
+	if _, err := store.CreateUser(context.Background(), "bob", "secret-pass", auth.RoleMember); err != nil {
+		t.Fatal(err)
+	}
+	req2, _ := http.NewRequest(http.MethodGet, base+"/runs", nil)
+	req2.SetBasicAuth("bob", "secret-pass")
+	req2.Header.Set("Accept", "text/html")
+	resp2, err := cl.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("Basic for non-MFA user status = %d, want 200", resp2.StatusCode)
+	}
+}
+
 func TestSecurityMutationRequiresStepUp(t *testing.T) {
 	base, store, uid, secret, cleanup := newMFAServer(t)
 	defer cleanup()

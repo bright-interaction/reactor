@@ -81,6 +81,9 @@ func (s sessionStoreAdapter) ResolveSession(ctx context.Context, cookieValue str
 func (s sessionStoreAdapter) ResolveSessionWithState(ctx context.Context, cookieValue string) (auth.User, auth.SessionState, error) {
 	return s.a.ResolveSessionWithState(ctx, cookieValue)
 }
+func (s sessionStoreAdapter) HasMFA(ctx context.Context, userID string) (bool, error) {
+	return s.a.HasMFA(ctx, userID)
+}
 func (s sessionStoreAdapter) ResolveAPIToken(ctx context.Context, raw string) (auth.User, error) {
 	return s.a.ResolveAPIToken(ctx, raw)
 }

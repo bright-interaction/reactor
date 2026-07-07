@@ -103,7 +103,8 @@ func (s *Store) decryptSecret(b64 string) ([]byte, error) {
 // "https://reactor.example.com"). Returns an error when the config is invalid,
 // which the caller surfaces so passkeys are simply left disabled.
 func NewWebAuthn(rpID, displayName string, origins []string) (*webauthn.WebAuthn, error) {
-	rpID = strings.TrimSpace(rpID)
+	// Normalize to the ASCII-lowercased effective domain (see RPIDFromOrigin).
+	rpID = strings.ToLower(strings.TrimSpace(rpID))
 	if rpID == "" {
 		return nil, errors.New("auth: WebAuthn RP ID is required")
 	}
@@ -138,5 +139,8 @@ func RPIDFromOrigin(origin string) string {
 	if err != nil || u.Host == "" {
 		return ""
 	}
-	return u.Hostname()
+	// The WebAuthn RP ID must be the ASCII-lowercased effective domain: browsers
+	// compute rpIdHash over the lowercased host, so a mixed-case value silently
+	// fails navigator.credentials on compliant agents.
+	return strings.ToLower(u.Hostname())
 }

@@ -108,11 +108,17 @@ func (s *Store) ConfirmTOTP(ctx context.Context, userID, code string) error {
 	if !ok {
 		return ErrCodeInvalid
 	}
-	// Distinct placeholders (the sqlite bind rewriter is positional; no $N reuse).
-	const upd = `UPDATE totp_secrets SET confirmed_at = $1, last_used_step = $2, last_used_at = $3 WHERE user_id = $4`
+	// Guard on confirmed_at IS NULL so a concurrent double-confirm cannot both
+	// win. Distinct placeholders (the sqlite bind rewriter is positional).
+	const upd = `UPDATE totp_secrets SET confirmed_at = $1, last_used_step = $2, last_used_at = $3 WHERE user_id = $4 AND confirmed_at IS NULL`
 	now := nowUTC()
-	if _, err := s.db.ExecContext(ctx, s.bind(upd), now, step, now, userID); err != nil {
+	res, err := s.db.ExecContext(ctx, s.bind(upd), now, step, now, userID)
+	if err != nil {
 		return fmt.Errorf("auth: confirm totp: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		// Raced with a concurrent confirm; the factor is already enabled.
+		return ErrTOTPAlreadyEnabled
 	}
 	return nil
 }
@@ -147,9 +153,19 @@ func (s *Store) VerifyTOTP(ctx context.Context, userID, code string) (bool, erro
 	if !ok {
 		return false, nil
 	}
-	const upd = `UPDATE totp_secrets SET last_used_step = $1, last_used_at = $2 WHERE user_id = $3`
-	if _, err := s.db.ExecContext(ctx, s.bind(upd), step, nowUTC(), userID); err != nil {
+	// Claim the step ATOMICALLY. The guarded UPDATE advances last_used_step only
+	// when no concurrent request already consumed this step (or a later one), so
+	// the same code cannot be spent twice under a race (the read/verify/update
+	// TOCTOU otherwise lets two requests both win). Mirrors ConsumeRecoveryCode.
+	// Distinct placeholders: the sqlite bind rewriter is positional, no $N reuse.
+	const upd = `UPDATE totp_secrets SET last_used_step = $1, last_used_at = $2 WHERE user_id = $3 AND (last_used_step IS NULL OR last_used_step < $4)`
+	res, err := s.db.ExecContext(ctx, s.bind(upd), step, nowUTC(), userID, step)
+	if err != nil {
 		return false, fmt.Errorf("auth: bump totp: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		// Lost the race: this step was already consumed. Reject as a replay.
+		return false, nil
 	}
 	return true, nil
 }
