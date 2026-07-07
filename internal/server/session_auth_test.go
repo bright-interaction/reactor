@@ -15,11 +15,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/brightinteraction/reactor/internal/auth"
-	"github.com/brightinteraction/reactor/internal/credentials"
-	"github.com/brightinteraction/reactor/internal/migrate"
-	"github.com/brightinteraction/reactor/internal/registry"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/auth"
+	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/registry"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 	_ "modernc.org/sqlite"
 )
 

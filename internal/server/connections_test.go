@@ -14,9 +14,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/brightinteraction/reactor/internal/auth"
-	"github.com/brightinteraction/reactor/internal/migrate"
-	"github.com/brightinteraction/reactor/internal/oauth"
+	"github.com/bright-interaction/reactor/internal/auth"
+	"github.com/bright-interaction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/oauth"
 )
 
 func serverWithOAuth(t *testing.T) *Server {

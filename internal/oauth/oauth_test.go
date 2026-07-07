@@ -14,7 +14,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/brightinteraction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/migrate"
 )
 
 func newTestStore(t *testing.T) *Store {

@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/brightinteraction/reactor/internal/auth"
+	"github.com/bright-interaction/reactor/internal/auth"
 )
 
 // AuthAdmin is the surface the /users + /tokens pages call into.

@@ -20,9 +20,9 @@ import (
 
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/brightinteraction/reactor/internal/credentials"
-	"github.com/brightinteraction/reactor/internal/safehttp"
-	"github.com/brightinteraction/reactor/internal/vault"
+	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/safehttp"
+	"github.com/bright-interaction/reactor/internal/vault"
 )
 
 // DeliveryHTTPClient is the shared client for rotation deliveries. It is

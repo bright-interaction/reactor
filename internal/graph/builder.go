@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/credentials"
-	"github.com/brightinteraction/reactor/internal/knowledge"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // Builder reads from the journal + credentials repo + knowledge store

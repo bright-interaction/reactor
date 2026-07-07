@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/brightinteraction/reactor/internal/codeedit"
+	"github.com/bright-interaction/reactor/internal/codeedit"
 	"github.com/go-chi/chi/v5"
 )
 

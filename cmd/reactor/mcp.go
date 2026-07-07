@@ -11,14 +11,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
-	"github.com/brightinteraction/reactor/internal/graph"
-	"github.com/brightinteraction/reactor/internal/knowledge"
-	"github.com/brightinteraction/reactor/internal/mcp"
-	"github.com/brightinteraction/reactor/internal/postmortem"
-	"github.com/brightinteraction/reactor/internal/registry"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
-	"github.com/brightinteraction/reactor/internal/runtime/supervisor"
+	"github.com/bright-interaction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/graph"
+	"github.com/bright-interaction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/mcp"
+	"github.com/bright-interaction/reactor/internal/postmortem"
+	"github.com/bright-interaction/reactor/internal/registry"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/supervisor"
 )
 
 // cmdMCP dispatches the mcp subcommand group.

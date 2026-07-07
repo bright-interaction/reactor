@@ -33,9 +33,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
-	"github.com/brightinteraction/reactor/internal/runtime/wire"
-	"github.com/brightinteraction/reactor/internal/vault"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/wire"
+	"github.com/bright-interaction/reactor/internal/vault"
 )
 
 // VaultReader is the metadata + value surface the supervisor needs from the

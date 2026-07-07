@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brightinteraction/reactor/internal/auth"
+	"github.com/bright-interaction/reactor/internal/auth"
 )
 
 // TestUsersBodyOnsubmitXSS pins the fix for the stored-XSS hole where a

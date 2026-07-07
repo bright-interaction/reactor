@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/codegen"
 )
 
 // generateWorkflow handles POST /generate. Body has a "brief" form

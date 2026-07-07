@@ -20,7 +20,7 @@ metadata instead of guessing. Prefer a dedicated package (`sdk/email`,
 ## The pattern
 
 ```go
-import ahttp "github.com/brightinteraction/reactor/sdk/http"
+import ahttp "github.com/bright-interaction/reactor/sdk/http"
 
 _, err := reactor.Step(flow, ctx, "create-contact", reactor.StepOpts{
     IdempotencyKey: "hubspot-contact:" + in.Email, // writes are side effects

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 func TestRunFlowDiagram(t *testing.T) {

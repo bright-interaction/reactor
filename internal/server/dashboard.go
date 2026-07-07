@@ -15,9 +15,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/brightinteraction/reactor/internal/knowledge"
-	"github.com/brightinteraction/reactor/internal/registry"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/registry"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // workflowDetail renders the three-pane view for one workflow:

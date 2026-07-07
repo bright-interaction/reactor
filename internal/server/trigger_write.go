@@ -15,8 +15,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	robfig "github.com/robfig/cron/v3"
 
-	"github.com/brightinteraction/reactor/internal/credentials"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // workflowCreateTrigger handles POST /workflows/{slug}/triggers. Kind

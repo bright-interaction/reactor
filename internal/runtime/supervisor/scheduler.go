@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/runtime/cancelreg"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/cancelreg"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // Scheduler walks the schedules table and re-spawns suspended runs whose

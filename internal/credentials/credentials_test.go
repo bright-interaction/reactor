@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/migrate"
 	_ "modernc.org/sqlite"
 )
 

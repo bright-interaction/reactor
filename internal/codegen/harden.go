@@ -19,7 +19,7 @@ import (
 // arbitrary third-party module that could run attacker-controlled code
 // (cgo directives, linker flags) at `go build` time.
 var AllowedImportPrefixes = []string{
-	"github.com/brightinteraction/reactor",
+	"github.com/bright-interaction/reactor",
 }
 
 // deniedImports are import paths that PARSE as standard library (no dot in the

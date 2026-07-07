@@ -10,11 +10,11 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/brightinteraction/reactor/internal/credentials"
-	"github.com/brightinteraction/reactor/internal/migrate"
-	"github.com/brightinteraction/reactor/internal/rotators"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
-	"github.com/brightinteraction/reactor/internal/vault"
+	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/rotators"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/vault"
 )
 
 // cmdVault dispatches the vault subcommand group: list / rotate / audit.

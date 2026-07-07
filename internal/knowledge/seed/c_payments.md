@@ -20,7 +20,7 @@ pass that key through so a replay never double-charges.
 ## Stripe: hosted checkout
 
 ```go
-import "github.com/brightinteraction/reactor/sdk/stripe"
+import "github.com/bright-interaction/reactor/sdk/stripe"
 
 out, err := reactor.Step(flow, ctx, "checkout", reactor.StepOpts{
     IdempotencyKey: "checkout:" + in.OrderID,
@@ -40,7 +40,7 @@ out, err := reactor.Step(flow, ctx, "checkout", reactor.StepOpts{
 ## Mollie: create a payment (EU)
 
 ```go
-import "github.com/brightinteraction/reactor/sdk/mollie"
+import "github.com/bright-interaction/reactor/sdk/mollie"
 
 c := &mollie.Client{Key: string(vault.MustGet("mollie-key").Reveal())}
 pay, err := c.CreatePayment(ctx, mollie.PaymentParams{

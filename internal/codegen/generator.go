@@ -450,7 +450,7 @@ func (v *GoBuildValidator) Validate(ctx context.Context, dir string, in EmitInpu
 // fetch deps. This is the simplest path that works for tests.
 func initModule(ctx context.Context, gobin, dir, slug string) error {
 	// Never trust a supplied go.mod. An uploaded tarball could ship a go.mod
-	// carrying `replace github.com/brightinteraction/reactor => ./evil` (plus
+	// carrying `replace github.com/bright-interaction/reactor => ./evil` (plus
 	// attacker code in ./evil) that substitutes for the SDK and runs at build
 	// time, and `go mod init` refuses when one exists. The daemon owns module
 	// setup, so remove any supplied go.mod/go.sum and regenerate a clean one
@@ -467,7 +467,7 @@ func initModule(ctx context.Context, gobin, dir, slug string) error {
 	// builds against it. (When the module is published this require alone
 	// will resolve; until then the replace is the supported self-host path.)
 	if replace := envFirst("REACTOR_SDK_REPLACE", "ARACHNE_SDK_REPLACE"); replace != "" {
-		const sdkModule = "github.com/brightinteraction/reactor"
+		const sdkModule = "github.com/bright-interaction/reactor"
 		if _, err := run(ctx, gobin, dir, "mod", "edit",
 			"-require="+sdkModule+"@v0.0.0",
 			"-replace="+sdkModule+"="+replace); err != nil {

@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/brightinteraction/reactor/internal/auth"
+	"github.com/bright-interaction/reactor/internal/auth"
 )
 
 func TestPostmortemsAdminOnly(t *testing.T) {

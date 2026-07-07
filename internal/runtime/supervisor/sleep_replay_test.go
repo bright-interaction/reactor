@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/runtime/wire"
+	"github.com/bright-interaction/reactor/internal/runtime/wire"
 )
 
 // TestHandleSleepAcksOnStaleSchedule reproduces the wall-clock-drift bug

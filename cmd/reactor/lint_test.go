@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/codegen"
 )
 
 // Lint fixtures live under testdata/lint and are generated at test time
@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/brightinteraction/reactor/sdk"
+	"github.com/bright-interaction/reactor/sdk"
 )
 
 var Workflow = reactor.Workflow{Slug: "demo", Version: "0.1.0"}
@@ -41,7 +41,7 @@ import (
 	"context"
 	"math/rand"
 
-	"github.com/brightinteraction/reactor/sdk"
+	"github.com/bright-interaction/reactor/sdk"
 )
 
 var Workflow = reactor.Workflow{Slug: "rand-demo", Version: "0.1.0"}

@@ -39,9 +39,9 @@ import (
 
 	"encoding/json"
 
-	"github.com/brightinteraction/reactor/internal/dispatcher"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
-	"github.com/brightinteraction/reactor/internal/vault"
+	"github.com/bright-interaction/reactor/internal/dispatcher"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/vault"
 )
 
 // MaxBodyBytes caps the inbound body so a misconfigured upstream cannot

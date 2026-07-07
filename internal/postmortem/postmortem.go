@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
-	"github.com/brightinteraction/reactor/internal/knowledge"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // Anthropic is the minimal surface we need from the codegen Anthropic

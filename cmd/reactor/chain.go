@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/dispatcher"
-	"github.com/brightinteraction/reactor/internal/notifier"
-	"github.com/brightinteraction/reactor/internal/runlogs"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/dispatcher"
+	"github.com/bright-interaction/reactor/internal/notifier"
+	"github.com/bright-interaction/reactor/internal/runlogs"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // handleRunTerminal is the single terminal-handling path shared by the

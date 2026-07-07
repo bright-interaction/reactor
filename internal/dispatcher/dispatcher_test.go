@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/migrate"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
-	"github.com/brightinteraction/reactor/internal/runtime/supervisor"
-	"github.com/brightinteraction/reactor/internal/vault"
+	"github.com/bright-interaction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/supervisor"
+	"github.com/bright-interaction/reactor/internal/vault"
 	_ "modernc.org/sqlite"
 )
 

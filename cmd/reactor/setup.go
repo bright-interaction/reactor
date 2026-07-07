@@ -16,9 +16,9 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/brightinteraction/reactor/internal/auth"
-	"github.com/brightinteraction/reactor/internal/migrate"
-	"github.com/brightinteraction/reactor/internal/server"
+	"github.com/bright-interaction/reactor/internal/auth"
+	"github.com/bright-interaction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/server"
 )
 
 // cmdSetup is the one-command first-boot wizard. Combines `reactor

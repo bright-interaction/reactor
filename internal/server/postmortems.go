@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/knowledge"
 )
 
 // postmortems renders the AI post-mortem corpus (admin-only). When a run fails

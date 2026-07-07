@@ -93,7 +93,7 @@ func TestCheckAllowedImportsAllowsStdlibAndSDK(t *testing.T) {
 import (
 	"context"
 	"fmt"
-	"github.com/brightinteraction/reactor/sdk"
+	"github.com/bright-interaction/reactor/sdk"
 )
 func main() { _ = context.Background(); fmt.Println(sdk.Version) }
 `)

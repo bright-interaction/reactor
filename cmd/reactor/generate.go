@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
-	"github.com/brightinteraction/reactor/internal/graph"
-	"github.com/brightinteraction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/graph"
+	"github.com/bright-interaction/reactor/internal/knowledge"
 )
 
 // cmdGenerate runs the codegen orchestrator from the CLI.

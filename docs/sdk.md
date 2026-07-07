@@ -6,7 +6,7 @@ the sdk packages + stdlib + a small allowlist).
 
 ## sdk
 
-`github.com/brightinteraction/reactor/sdk`
+`github.com/bright-interaction/reactor/sdk`
 
 ```go
 type Workflow struct{ Slug, Version string }

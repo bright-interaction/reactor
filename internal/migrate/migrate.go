@@ -17,7 +17,7 @@ import (
 
 	"github.com/pressly/goose/v3"
 
-	dbpkg "github.com/brightinteraction/reactor/internal/db"
+	dbpkg "github.com/bright-interaction/reactor/internal/db"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"

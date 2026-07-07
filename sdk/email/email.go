@@ -27,7 +27,7 @@ import (
 	"mime/quotedprintable"
 	"strings"
 
-	ahttp "github.com/brightinteraction/reactor/sdk/http"
+	ahttp "github.com/bright-interaction/reactor/sdk/http"
 )
 
 // Endpoints are package vars so tests can point them at a fake server. They

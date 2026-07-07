@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brightinteraction/reactor/internal/auth"
+	"github.com/bright-interaction/reactor/internal/auth"
 )
 
 func navForUser(u *auth.User) string {

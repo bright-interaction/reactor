@@ -3,8 +3,8 @@ package codegen
 import (
 	"context"
 
-	"github.com/brightinteraction/reactor/internal/graph"
-	"github.com/brightinteraction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/graph"
+	"github.com/bright-interaction/reactor/internal/knowledge"
 )
 
 // NewLens wires a PromptLens against a live knowledge.Store + graph.Graph.

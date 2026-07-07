@@ -31,16 +31,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/brightinteraction/reactor/internal/credentials"
-	"github.com/brightinteraction/reactor/internal/flarereport"
-	"github.com/brightinteraction/reactor/internal/graph"
-	"github.com/brightinteraction/reactor/internal/knowledge"
-	"github.com/brightinteraction/reactor/internal/oauth"
-	"github.com/brightinteraction/reactor/internal/registry"
-	"github.com/brightinteraction/reactor/internal/runlogs"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
-	"github.com/brightinteraction/reactor/internal/runtime/webhook"
-	"github.com/brightinteraction/reactor/internal/vault"
+	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/flarereport"
+	"github.com/bright-interaction/reactor/internal/graph"
+	"github.com/bright-interaction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/oauth"
+	"github.com/bright-interaction/reactor/internal/registry"
+	"github.com/bright-interaction/reactor/internal/runlogs"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/webhook"
+	"github.com/bright-interaction/reactor/internal/vault"
 )
 
 // Server wires every HTTP-facing component together. The daemon

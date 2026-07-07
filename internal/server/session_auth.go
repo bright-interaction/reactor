@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/auth"
+	"github.com/bright-interaction/reactor/internal/auth"
 )
 
 // SessionCookieName is the dashboard's session cookie name.
