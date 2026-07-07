@@ -23,7 +23,7 @@ The dashboard is server-rendered HTML reachable from a browser. Every page in th
 The dashboard accepts three credential shapes in priority order:
 
 1. **Session cookie** `reactor_sess`. HttpOnly, SameSite=Strict, 7-day TTL. Minted by `POST /login`.
-2. **Bearer token** `Authorization: Bearer arc_<base64>`. Minted at `/tokens`; same permissions as the issuing user.
+2. **Bearer token** `Authorization: Bearer rtr_<base64>`. Minted at `/tokens`; same permissions as the issuing user.
 3. **HTTP Basic** `Authorization: Basic <user>:<pass>`. Falls through to the users table; the legacy env-var `REACTOR_BASIC_AUTH_USER` + `REACTOR_BASIC_AUTH_PASSWORD_SHA256` is the boot fallback when no users exist.
 
 Unauthenticated requests redirect to `/login?next=<path>` for HTML clients and return `401 Unauthorized` for JSON clients.

@@ -15,7 +15,7 @@ Minted by:
 ```sh
 curl -i -X POST https://reactor.example.com/login \
   -H "Origin: https://reactor.example.com" \
-  -d "username=alice&password=YOUR_PASSWORD&next=/"
+  -d "username=$YOUR_USER&password=$YOUR_PASSWORD&next=/"
 # HTTP/1.1 303 See Other
 # Set-Cookie: reactor_sess=<base64>; Path=/; HttpOnly; SameSite=Strict
 # Location: /
@@ -31,10 +31,10 @@ Lifetime: 7 days. `POST /logout` destroys the row.
 
 ### Bearer token
 
-Minted at `/tokens` in the dashboard. The raw token (`arc_<base64>`) is shown exactly once at mint time.
+Minted at `/tokens` in the dashboard. The raw token (`rtr_<base64>`) is shown exactly once at mint time.
 
 ```sh
-curl -H "Authorization: Bearer arc_YOUR_TOKEN_HERE" \
+curl -H "Authorization: Bearer rtr_YOUR_TOKEN_HERE" \
   https://reactor.example.com/runs
 ```
 
@@ -242,7 +242,7 @@ The limiter map evicts idle buckets after 10 minutes and caps at 50,000 entries;
 
 ```sh
 # Mint a token in the dashboard, then:
-TOKEN="arc_..."
+TOKEN="rtr_..."
 BASE="https://reactor.example.com"
 
 # 1. Register a workflow from a tarball.

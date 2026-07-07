@@ -184,7 +184,7 @@ func TestAPITokenMintListResolveRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(raw, "arc_") {
+	if !strings.HasPrefix(raw, "rtr_") {
 		t.Fatalf("raw token = %q", raw)
 	}
 
