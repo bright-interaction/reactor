@@ -80,6 +80,11 @@ REDACT="$WORK/redactions.txt"
 {
   echo 'dockyard.example.com==>dockyard.example.com'
   echo 'host==>host'
+  # Doc examples in older history that trip the gitleaks curl-auth rules (NOT
+  # real secrets: a placeholder API token + the XKCD example password). The
+  # current docs already use obvious placeholders; this scrubs the old history.
+  echo 'rtr_YOUR_TOKEN_HERE==>arc_YOUR_TOKEN_HERE'
+  echo 'alice:YOUR_PASSWORD==>YOUR_USER:YOUR_PASSWORD'
 } > "$REDACT"
 echo "Redacting internal infra hostnames from all history ..."
 ( cd "$CLONE" && git filter-repo --force --replace-text "$REDACT" --replace-message "$REDACT" )
