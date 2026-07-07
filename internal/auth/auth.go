@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -86,11 +87,16 @@ var (
 	ErrSessionExpired  = errors.New("auth: session expired")
 )
 
-// Store wraps the sqlite/postgres CRUD for users, sessions, and
-// api_tokens. Engine selected at construction.
+// Store wraps the sqlite/postgres CRUD for users, sessions, api_tokens, and
+// the MFA factors (WebAuthn passkeys, TOTP, recovery codes). Engine selected
+// at construction. mfaKey and wa are optional: absent them, TOTP and passkey
+// enrollment respectively refuse with a clear error, but password auth and
+// everything else keep working (so existing deployments upgrade cleanly).
 type Store struct {
 	db     *sql.DB
 	engine Engine
+	mfaKey []byte             // 32-byte AES-256-GCM key for TOTP secret encryption; nil disables TOTP
+	wa     *webauthn.WebAuthn // relying-party handle; nil disables passkeys
 }
 
 // Engine selects parameter binding style. Mirrors journal.Engine.
@@ -101,9 +107,25 @@ const (
 	EnginePostgres
 )
 
-// New returns a Store bound to the given DB + engine.
-func New(db *sql.DB, engine Engine) *Store {
-	return &Store{db: db, engine: engine}
+// Option configures a Store at construction.
+type Option func(*Store)
+
+// WithMFAKey enables TOTP by supplying the 32-byte AES-256-GCM key used to
+// encrypt TOTP shared secrets at rest. Derive it from the daemon master key
+// with DeriveMFAKey so it is cryptographically separated from the vault key.
+func WithMFAKey(key []byte) Option { return func(s *Store) { s.mfaKey = key } }
+
+// WithWebAuthn enables passkeys by supplying a configured relying-party handle
+// (see NewWebAuthn).
+func WithWebAuthn(wa *webauthn.WebAuthn) Option { return func(s *Store) { s.wa = wa } }
+
+// New returns a Store bound to the given DB + engine, applying any options.
+func New(db *sql.DB, engine Engine, opts ...Option) *Store {
+	s := &Store{db: db, engine: engine}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // bind translates $N placeholders for sqlite (which uses ?).
@@ -415,16 +437,30 @@ const sessionIdleWindow = 3 * 24 * time.Hour
 // ResolveSession looks up the session by cookie value. Returns
 // ErrSessionExpired when the row exists but is past expires_at;
 // ErrNotFound when no row matches; the User otherwise. Bumps
-// last_seen_at on every successful resolve.
+// last_seen_at on every successful resolve. Thin wrapper over
+// ResolveSessionWithState for callers that don't need the MFA assurance level.
 func (s *Store) ResolveSession(ctx context.Context, cookieValue string) (User, error) {
+	u, _, err := s.ResolveSessionWithState(ctx, cookieValue)
+	return u, err
+}
+
+// ResolveSessionWithState is ResolveSession plus the session's MFA assurance
+// level (whether a second factor is still owed, and the step-up window). The
+// auth middleware uses the state to gate an mfa_pending session down to just
+// the MFA + logout routes, and dangerous handlers use it to require a fresh
+// step-up. Enforces the absolute TTL, the idle window, and disabled-user
+// invalidation exactly as before.
+func (s *Store) ResolveSessionWithState(ctx context.Context, cookieValue string) (User, SessionState, error) {
 	hashHex := hashToken(cookieValue)
-	const q = `SELECT s.expires_at, s.last_seen_at, u.id, u.username, u.password_phc, u.role, u.tenant_id, u.disabled, u.created_at, u.updated_at, u.last_login_at
+	const q = `SELECT s.expires_at, s.last_seen_at, s.mfa_pending, s.elevated_until, u.id, u.username, u.password_phc, u.role, u.tenant_id, u.disabled, u.created_at, u.updated_at, u.last_login_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
 		WHERE s.id_hash = $1`
 	row := s.db.QueryRowContext(ctx, s.bind(q), hashHex)
 	var (
 		expiresStr string
 		lastSeen   sql.NullString
+		mfaPending any
+		elevated   sql.NullString
 		u          User
 		passPHC    string
 		role       string
@@ -433,20 +469,20 @@ func (s *Store) ResolveSession(ctx context.Context, cookieValue string) (User, e
 		updated    sql.NullString
 		lastLogin  sql.NullString
 	)
-	if err := row.Scan(&expiresStr, &lastSeen, &u.ID, &u.Username, &passPHC, &role, &u.TenantID, &disabled, &created, &updated, &lastLogin); err != nil {
+	if err := row.Scan(&expiresStr, &lastSeen, &mfaPending, &elevated, &u.ID, &u.Username, &passPHC, &role, &u.TenantID, &disabled, &created, &updated, &lastLogin); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return User{}, ErrNotFound
+			return User{}, SessionState{}, ErrNotFound
 		}
-		return User{}, fmt.Errorf("auth: resolve session: %w", err)
+		return User{}, SessionState{}, fmt.Errorf("auth: resolve session: %w", err)
 	}
 	expires, err := parseTime(expiresStr)
 	if err != nil {
-		return User{}, fmt.Errorf("auth: parse session expiry: %w", err)
+		return User{}, SessionState{}, fmt.Errorf("auth: parse session expiry: %w", err)
 	}
 	if time.Now().UTC().After(expires) {
 		// Best-effort sweep of the expired row.
 		_, _ = s.db.ExecContext(ctx, s.bind(`DELETE FROM sessions WHERE id_hash = $1`), hashHex)
-		return User{}, ErrSessionExpired
+		return User{}, SessionState{}, ErrSessionExpired
 	}
 	// Idle timeout: a session unused for longer than the idle window is
 	// invalidated even though its absolute 7-day TTL has not elapsed, bounding
@@ -454,7 +490,7 @@ func (s *Store) ResolveSession(ctx context.Context, cookieValue string) (User, e
 	if lastSeen.Valid {
 		if seen, perr := parseTime(lastSeen.String); perr == nil && time.Now().UTC().Sub(seen) > sessionIdleWindow {
 			_, _ = s.db.ExecContext(ctx, s.bind(`DELETE FROM sessions WHERE id_hash = $1`), hashHex)
-			return User{}, ErrSessionExpired
+			return User{}, SessionState{}, ErrSessionExpired
 		}
 	}
 	u.PasswordPHC = passPHC
@@ -463,7 +499,7 @@ func (s *Store) ResolveSession(ctx context.Context, cookieValue string) (User, e
 	if u.Disabled {
 		// A disabled user's session is no longer valid.
 		_, _ = s.db.ExecContext(ctx, s.bind(`DELETE FROM sessions WHERE user_id = $1`), u.ID)
-		return User{}, ErrDisabled
+		return User{}, SessionState{}, ErrDisabled
 	}
 	if created.Valid {
 		if t, err := parseTime(created.String); err == nil {
@@ -480,9 +516,15 @@ func (s *Store) ResolveSession(ctx context.Context, cookieValue string) (User, e
 			u.LastLoginAt = &t
 		}
 	}
+	st := SessionState{IDHash: hashHex, MFAPending: parseBool(mfaPending)}
+	if elevated.Valid {
+		if t, perr := parseTime(elevated.String); perr == nil {
+			st.ElevatedUntil = t
+		}
+	}
 	// Best-effort bump of last_seen_at; failures don't block the request.
 	_, _ = s.db.ExecContext(ctx, s.bind(`UPDATE sessions SET last_seen_at = $1 WHERE id_hash = $2`), nowUTC(), hashHex)
-	return u, nil
+	return u, st, nil
 }
 
 // DestroySession removes the row for the given cookie value. Used by
