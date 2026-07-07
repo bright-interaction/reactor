@@ -1,0 +1,8 @@
+{
+  "slug": "{{.Slug}}",
+  "version": "0.1.0",
+  "triggers": [{"kind": "webhook", "provider": "generic"}],
+  "steps": [
+    {"name": "send-email", "kind": "step", "idempotency_key": "input.email", "timeout_seconds": 15}
+  ]
+}

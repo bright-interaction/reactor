@@ -1,0 +1,62 @@
+# nfpm config for building .deb + .rpm packages from the same release
+# artifacts the GitHub Actions workflow produces. Invoke from CI:
+#
+#   REACTOR_VERSION=${GITHUB_REF_NAME#v} \
+#     REACTOR_BINARY=dist/reactor-${GITHUB_REF_NAME}-linux-amd64 \
+#     nfpm pkg --packager deb --config packaging/nfpm.yaml --target dist/
+#   REACTOR_BINARY=dist/reactor-${GITHUB_REF_NAME}-linux-arm64 \
+#     nfpm pkg --packager deb --config packaging/nfpm.yaml --target dist/
+#   REACTOR_BINARY=dist/reactor-${GITHUB_REF_NAME}-linux-amd64 \
+#     nfpm pkg --packager rpm --config packaging/nfpm.yaml --target dist/
+#
+# nfpm reads env vars for substitution; REACTOR_VERSION + REACTOR_BINARY
+# are required, everything else has a default below.
+
+name: reactor
+arch: ${REACTOR_ARCH:-amd64}
+platform: linux
+version: ${REACTOR_VERSION}
+section: utils
+priority: optional
+maintainer: Bright Interaction <hello@brightinteraction.com>
+description: |
+  AI-built workflow automation. Self-hosted. Single Go binary.
+  Code-as-artifact (generated Go committed to reactor-workflows/),
+  durable execution with checkpoint + replay, self-contained vault
+  with zero-downtime rotation, dashboard with codegen prompt bar,
+  stdio + Streamable HTTP MCP transports.
+vendor: Bright Interaction
+homepage: https://github.com/brightinteraction/reactor
+license: Reactor Sustainable Use License (fair-code)
+
+contents:
+  - src: ${REACTOR_BINARY}
+    dst: /usr/bin/reactor
+    file_info:
+      mode: 0755
+  - src: deploy/reactor.service
+    dst: /lib/systemd/system/reactor.service
+    file_info:
+      mode: 0644
+    type: config|noreplace
+  - src: deploy/README.md
+    dst: /usr/share/doc/reactor/DEPLOY.md
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/reactor/LICENSE
+    file_info:
+      mode: 0644
+  - src: CHANGELOG.md
+    dst: /usr/share/doc/reactor/CHANGELOG.md
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: packaging/scripts/postinstall.sh
+  preremove: packaging/scripts/preremove.sh
+
+deb:
+  triggers:
+    interest_noawait:
+      - /usr/share/man

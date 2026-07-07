@@ -1,0 +1,9 @@
+{
+  "slug": "{{.Slug}}",
+  "version": "0.1.0",
+  "triggers": [{"kind": "webhook", "provider": "stripe"}],
+  "steps": [
+    {"name": "fulfill-checkout", "kind": "step", "idempotency_key": "stripe.event_id", "timeout_seconds": 20, "retry": {"base_ms": 1000, "max_ms": 10000, "attempts": 3}},
+    {"name": "cancel-account", "kind": "step", "idempotency_key": "stripe.event_id", "timeout_seconds": 10}
+  ]
+}

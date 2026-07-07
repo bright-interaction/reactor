@@ -1,0 +1,36 @@
+services:
+  reactor:
+    image: reactor:latest
+    container_name: reactor
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7777:7777"
+    volumes:
+      - reactor-state:/var/lib/reactor
+    environment:
+      REACTOR_DB_URL: sqlite:///var/lib/reactor/reactor.db
+      REACTOR_BASIC_AUTH_USER: ${REACTOR_USER:?set REACTOR_USER in .env}
+      REACTOR_BASIC_AUTH_PASSWORD_SHA256: ${REACTOR_PASSWORD_SHA256:?set REACTOR_PASSWORD_SHA256 in .env}
+      REACTOR_RATE_BURST: "120"
+      REACTOR_RATE_REFILL: "20"
+      FLARE_DSN: ${FLARE_DSN:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    command:
+      - serve
+      - --root=/var/lib/reactor
+      - --db=sqlite:///var/lib/reactor/reactor.db
+      - --addr=:7777
+
+  reactor-init:
+    image: reactor:latest
+    profiles: ["init"]
+    volumes:
+      - reactor-state:/var/lib/reactor
+    entrypoint: ["/bin/sh", "-eu", "-c"]
+    command:
+      - |
+        reactor init --root /var/lib/reactor
+        reactor migrate --db sqlite:///var/lib/reactor/reactor.db
+
+volumes:
+  reactor-state:

@@ -1,0 +1,10 @@
+{
+  "slug": "{{.Slug}}",
+  "version": "0.1.0",
+  "triggers": [{"kind": "cron", "spec": "0 9 * * 1-5"}],
+  "steps": [
+    {"name": "report-stamp", "kind": "side_effect"},
+    {"name": "fetch-metrics", "kind": "step", "idempotency_key": "day", "timeout_seconds": 30, "retry": {"base_ms": 1000, "max_ms": 10000, "attempts": 3}},
+    {"name": "post-summary", "kind": "step", "depends_on": ["fetch-metrics"], "idempotency_key": "day", "timeout_seconds": 15}
+  ]
+}

@@ -1,0 +1,74 @@
+# Reactor Homebrew formula template.
+#
+# Two paths to a usable formula:
+#
+#   1. Self-host a tap. After cutting a release, copy this file into
+#      Formula/reactor.rb in your homebrew-* tap repo, replace VERSION
+#      + the four sha256 placeholders with values from the GitHub
+#      release's sha256 files, and `brew tap <org>/<tap> && brew install
+#      reactor`.
+#
+#   2. Generate it programmatically from the release CI. See the
+#      `homebrew-bump` action commented at the bottom of
+#      .github/workflows/release.yml for the auto-bump path.
+#
+# The formula installs the prebuilt binary from the GitHub release
+# (no source build) so users without Go on PATH still get a one-line
+# install. Source builds are available via `brew install --HEAD` once
+# the repo is mirrored to GitHub.
+
+class Reactor < Formula
+  desc "AI-built workflow automation. Self-hosted. Single Go binary."
+  homepage "https://github.com/brightinteraction/reactor"
+  version "VERSION_PLACEHOLDER"
+  # Fair-code (Reactor Sustainable Use License); not an SPDX/OSI license.
+  license :cannot_represent
+
+  on_macos do
+    on_arm do
+      url "https://github.com/brightinteraction/reactor/releases/download/v#{version}/reactor-v#{version}-darwin-arm64"
+      sha256 "DARWIN_ARM64_SHA256_PLACEHOLDER"
+    end
+    on_intel do
+      url "https://github.com/brightinteraction/reactor/releases/download/v#{version}/reactor-v#{version}-darwin-amd64"
+      sha256 "DARWIN_AMD64_SHA256_PLACEHOLDER"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/brightinteraction/reactor/releases/download/v#{version}/reactor-v#{version}-linux-arm64"
+      sha256 "LINUX_ARM64_SHA256_PLACEHOLDER"
+    end
+    on_intel do
+      url "https://github.com/brightinteraction/reactor/releases/download/v#{version}/reactor-v#{version}-linux-amd64"
+      sha256 "LINUX_AMD64_SHA256_PLACEHOLDER"
+    end
+  end
+
+  def install
+    case Hardware::CPU.arch
+    when :arm64
+      bin.install Dir["reactor-v#{version}-*-arm64"].first => "reactor"
+    when :x86_64
+      bin.install Dir["reactor-v#{version}-*-amd64"].first => "reactor"
+    end
+  end
+
+  def caveats
+    <<~EOS
+      Quickstart:
+        reactor init --root #{var}/reactor
+        reactor migrate --db sqlite://#{var}/reactor/reactor.db
+        reactor serve --root #{var}/reactor --db sqlite://#{var}/reactor/reactor.db
+
+      The dashboard is at http://127.0.0.1:7777/ once the daemon is up.
+      Set REACTOR_BASIC_AUTH_USER + REACTOR_BASIC_AUTH_PASSWORD_SHA256 in your
+      environment before exposing the port beyond localhost.
+    EOS
+  end
+
+  test do
+    assert_match "dev", shell_output("#{bin}/reactor version 2>&1 || true")
+  end
+end

@@ -1,0 +1,10 @@
+{
+  "slug": "{{.Slug}}",
+  "version": "0.1.0",
+  "triggers": [{"kind": "webhook", "provider": "github"}],
+  "steps": [
+    {"name": "fetch-diff", "kind": "step", "idempotency_key": "repo+pr", "timeout_seconds": 30, "retry": {"base_ms": 1000, "max_ms": 10000, "attempts": 3}},
+    {"name": "llm-review", "kind": "step", "depends_on": ["fetch-diff"], "idempotency_key": "repo+pr", "timeout_seconds": 60},
+    {"name": "post-comment", "kind": "step", "depends_on": ["llm-review"], "idempotency_key": "repo+pr", "timeout_seconds": 20}
+  ]
+}

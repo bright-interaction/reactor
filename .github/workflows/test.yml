@@ -1,0 +1,33 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race -count=1 -timeout=180s ./...
+
+      - name: go build
+        run: go build -o bin/reactor ./cmd/reactor
+
+      - name: smoke test the binary
+        run: |
+          ./bin/reactor version
+          ./bin/reactor init --root /tmp/reactor-ci
+          ./bin/reactor migrate --db sqlite:///tmp/reactor-ci/reactor.db
+          ./bin/reactor ps --db sqlite:///tmp/reactor-ci/reactor.db

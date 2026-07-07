@@ -1,0 +1,10 @@
+{
+  "slug": "{{.Slug}}",
+  "version": "0.1.0",
+  "triggers": [{"kind": "webhook", "provider": "generic"}],
+  "steps": [
+    {"name": "send-approval-email", "kind": "step", "idempotency_key": "input.subject", "timeout_seconds": 15},
+    {"name": "approval", "kind": "await_signal"},
+    {"name": "execute-approved-action", "kind": "step", "depends_on": ["approval"], "timeout_seconds": 30}
+  ]
+}

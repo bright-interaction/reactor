@@ -1,0 +1,52 @@
+[Unit]
+Description=Reactor daemon
+Documentation=https://github.com/brightinteraction/reactor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The reactor user owns /var/lib/reactor (master.key mode 0600,
+# workflows/<slug>/workflow mode 0755). Create it with:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin \
+#     --home-dir /var/lib/reactor reactor
+#   sudo install -d -m 0700 -o reactor -g reactor /var/lib/reactor
+User=reactor
+Group=reactor
+WorkingDirectory=/var/lib/reactor
+
+# Boot-once init: run reactor init + migrate the first time, then
+# disable this command (or keep --root + --db idempotent across reboots).
+# This unit assumes init has already run; flip the wrapper script to
+# `reactor init && reactor migrate && reactor serve` if you want
+# zero-touch first boot.
+Environment=REACTOR_DB_URL=sqlite:///var/lib/reactor/reactor.db
+EnvironmentFile=-/etc/reactor/reactor.env
+ExecStart=/usr/local/bin/reactor serve --root /var/lib/reactor
+
+# Hardening. Daemon needs network + the state dir; deny everything else.
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/reactor
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# Resource caps. Tune for your workload.
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

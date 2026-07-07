@@ -1,0 +1,9 @@
+{
+  "slug": "{{.Slug}}",
+  "version": "0.1.0",
+  "triggers": [{"kind": "cron", "schedule": "0 * * * *"}],
+  "steps": [
+    {"name": "tick-time", "kind": "side_effect"},
+    {"name": "do-work", "kind": "step", "timeout_seconds": 30}
+  ]
+}

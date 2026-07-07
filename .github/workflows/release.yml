@@ -1,0 +1,136 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          OUT="dist/reactor-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
+          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o "$OUT" ./cmd/reactor
+          (cd dist && sha256sum "$(basename "$OUT")" > "$(basename "$OUT").sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reactor-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: install nfpm
+        run: |
+          NFPM_VERSION=2.39.0
+          curl -sSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_amd64.deb" -o /tmp/nfpm.deb
+          sudo dpkg -i /tmp/nfpm.deb
+
+      - name: build .deb + .rpm (amd64 + arm64)
+        env:
+          REACTOR_VERSION: ${{ github.ref_name }}
+        run: |
+          VER="${REACTOR_VERSION#v}"
+          for arch in amd64 arm64; do
+            for fmt in deb rpm; do
+              REACTOR_ARCH="$arch" \
+              REACTOR_VERSION="$VER" \
+              REACTOR_BINARY="dist/reactor-${REACTOR_VERSION}-linux-${arch}" \
+                nfpm pkg --packager "$fmt" --config packaging/nfpm.yaml --target dist/
+            done
+          done
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reactor-packages
+          path: dist/*.deb
+            dist/*.rpm
+
+  release:
+    needs: [build, package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: changelog extract
+        id: changelog
+        run: |
+          {
+            echo "notes<<EOF"
+            awk -v ver="${GITHUB_REF_NAME#v}" '
+              /^## / { if (capture) exit; if (index($0, ver)) { capture=1; next } }
+              capture { print }
+            ' CHANGELOG.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: gh release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes "${{ steps.changelog.outputs.notes }}"
+
+      - name: render homebrew formula
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/homebrew
+          FORMULA=dist/homebrew/reactor.rb
+          sed \
+            -e "s/VERSION_PLACEHOLDER/$VER/g" \
+            -e "s/DARWIN_ARM64_SHA256_PLACEHOLDER/$(cat dist/reactor-${GITHUB_REF_NAME}-darwin-arm64.sha256 | cut -d' ' -f1)/g" \
+            -e "s/DARWIN_AMD64_SHA256_PLACEHOLDER/$(cat dist/reactor-${GITHUB_REF_NAME}-darwin-amd64.sha256 | cut -d' ' -f1)/g" \
+            -e "s/LINUX_ARM64_SHA256_PLACEHOLDER/$(cat dist/reactor-${GITHUB_REF_NAME}-linux-arm64.sha256 | cut -d' ' -f1)/g" \
+            -e "s/LINUX_AMD64_SHA256_PLACEHOLDER/$(cat dist/reactor-${GITHUB_REF_NAME}-linux-amd64.sha256 | cut -d' ' -f1)/g" \
+            packaging/homebrew/reactor.rb.tmpl > "$FORMULA"
+
+      - name: attach homebrew formula to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" dist/homebrew/reactor.rb --clobber

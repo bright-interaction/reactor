@@ -1,0 +1,9 @@
+{
+  "slug": "{{.Slug}}",
+  "version": "0.1.0",
+  "triggers": [{"kind": "webhook", "provider": "generic"}],
+  "steps": [
+    {"name": "captured-time", "kind": "side_effect"},
+    {"name": "echo", "kind": "step", "idempotency_key": "input.hello", "timeout_seconds": 5}
+  ]
+}

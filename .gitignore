@@ -1,0 +1,32 @@
+# Build artefacts. /reactor is anchored so the binary is ignored at
+# the project root but cmd/reactor/ (the source dir) stays tracked.
+/bin/
+/dist/
+/reactor
+/reactor.exe
+
+# Local data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+master.key
+*.master.key
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Env files (per repo-wide rules)
+.env
+.env.*
+*.env
+!*.env.example
+
+# Generated frontend bundle
+/internal/web/dist/
+
+# Test artefacts
+coverage.out
+coverage.html
