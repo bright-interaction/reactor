@@ -211,31 +211,31 @@ func TestChallengeSingleUsePurposeAndExpiry(t *testing.T) {
 	uid, _ := s.CreateUser(ctx, "alice", "secret-pass", RoleAdmin)
 
 	sd := &webauthn.SessionData{Challenge: "abc123", UserID: []byte(uid)}
-	id, err := s.putChallenge(ctx, uid, purposeLogin, sd)
+	id, err := s.putChallenge(ctx, uid, PurposeLogin, sd)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Purpose mismatch -> not found.
-	if _, _, err := s.takeChallenge(ctx, id, purposeStepUp); err != ErrChallengeNotFound {
+	if _, _, err := s.takeChallenge(ctx, id, PurposeStepUp); err != ErrChallengeNotFound {
 		t.Fatalf("purpose mismatch err = %v", err)
 	}
 	// Correct purpose -> found once.
-	got, chUser, err := s.takeChallenge(ctx, id, purposeLogin)
+	got, chUser, err := s.takeChallenge(ctx, id, PurposeLogin)
 	if err != nil || chUser != uid || got.Challenge != "abc123" {
 		t.Fatalf("take: user=%s err=%v sd=%+v", chUser, err, got)
 	}
 	// Second take -> consumed.
-	if _, _, err := s.takeChallenge(ctx, id, purposeLogin); err != ErrChallengeNotFound {
+	if _, _, err := s.takeChallenge(ctx, id, PurposeLogin); err != ErrChallengeNotFound {
 		t.Fatalf("second take err = %v, want ErrChallengeNotFound", err)
 	}
 
 	// Expired challenge is consumed but reported expired.
 	expired := formatTime(time.Now().UTC().Add(-time.Hour))
 	if _, err := s.db.ExecContext(ctx, s.bind(`INSERT INTO webauthn_challenges (id, user_id, purpose, session_data, expires_at) VALUES ($1,$2,$3,$4,$5)`),
-		"wch_expired", uid, purposeLogin, "{}", expired); err != nil {
+		"wch_expired", uid, PurposeLogin, "{}", expired); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.takeChallenge(ctx, "wch_expired", purposeLogin); err != ErrChallengeExpired {
+	if _, _, err := s.takeChallenge(ctx, "wch_expired", PurposeLogin); err != ErrChallengeExpired {
 		t.Fatalf("expired take err = %v, want ErrChallengeExpired", err)
 	}
 }

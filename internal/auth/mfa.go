@@ -40,6 +40,12 @@ func (st SessionState) IsElevated() bool {
 	return !st.ElevatedUntil.IsZero() && time.Now().UTC().Before(st.ElevatedUntil)
 }
 
+// WebAuthnAvailable reports whether passkeys are configured (an RP is set).
+func (s *Store) WebAuthnAvailable() bool { return s.wa != nil }
+
+// TOTPAvailable reports whether TOTP is configured (an encryption key is set).
+func (s *Store) TOTPAvailable() bool { return len(s.mfaKey) == 32 }
+
 // CreatePendingSession mints a session that is authenticated by password but
 // still owes a second factor (mfa_pending=1). Until the factor clears, the
 // auth middleware grants it nothing but the MFA + logout routes. Returns the

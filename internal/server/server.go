@@ -401,6 +401,29 @@ func (s *Server) mountAuthRoutes(r chi.Router) {
 	r.Post("/users/{id}/disable", s.usersDisable)
 	r.Post("/users/{id}/enable", s.usersEnable)
 	r.Post("/users/{id}/delete", s.usersDelete)
+
+	// Second-factor challenge at login (reachable by a pending session only).
+	r.Get("/login/mfa", s.mfaChallenge)
+	r.Post("/login/mfa/webauthn/begin", s.mfaLoginWebAuthnBegin)
+	r.Post("/login/mfa/webauthn/finish", s.mfaLoginWebAuthnFinish)
+	r.Post("/login/mfa/totp", s.mfaLoginTOTP)
+	r.Post("/login/mfa/recovery", s.mfaLoginRecovery)
+
+	// Self-service factor management (every signed-in user; own factors only).
+	// Mutations are step-up gated once the user already has a factor.
+	r.Get("/security", s.security)
+	r.Post("/security/webauthn/register/begin", s.securityWebAuthnRegisterBegin)
+	r.Post("/security/webauthn/register/finish", s.securityWebAuthnRegisterFinish)
+	r.Post("/security/webauthn/{id}/delete", s.securityWebAuthnDelete)
+	r.Post("/security/webauthn/{id}/rename", s.securityWebAuthnRename)
+	r.Post("/security/totp/begin", s.securityTOTPBegin)
+	r.Post("/security/totp/confirm", s.securityTOTPConfirm)
+	r.Post("/security/totp/disable", s.securityTOTPDisable)
+	r.Post("/security/recovery/regenerate", s.securityRecoveryRegenerate)
+	// Step-up ("sudo") assertion for the mutations above.
+	r.Post("/security/stepup/begin", s.securityStepUpBegin)
+	r.Post("/security/stepup/finish", s.securityStepUpFinish)
+	r.Post("/security/stepup/totp", s.securityStepUpTOTP)
 }
 
 func (s *Server) mountNotificationsRoutes(r chi.Router) {

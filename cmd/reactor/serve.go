@@ -260,7 +260,7 @@ func openServeDeps(ctx context.Context, log *slog.Logger, cfg *serveConfig) (*se
 	if engine == migrate.EnginePostgres {
 		authEngine = auth.EnginePostgres
 	}
-	authStore := auth.New(db, authEngine)
+	authStore := auth.New(db, authEngine, buildMFAOptions(log, cfg.masterKey)...)
 	vaultStore, err := vault.NewStore(vault.NewSQLBackend(db, vaultEngine), cfg.masterKey, cfg.previousMasterKey)
 	if err != nil {
 		db.Close()
@@ -427,6 +427,11 @@ func runRetentionLoop(ctx context.Context, log *slog.Logger, deps *serveDeps) {
 			log.Warn("serve: sweep expired sessions failed", "err", err)
 		} else if n > 0 {
 			log.Info("serve: swept expired sessions", "count", n)
+		}
+		if n, err := deps.authStore.SweepExpiredChallenges(ctx); err != nil {
+			log.Warn("serve: sweep expired webauthn challenges failed", "err", err)
+		} else if n > 0 {
+			log.Info("serve: swept expired webauthn challenges", "count", n)
 		}
 		if err := deps.journal.PurgeOldWebhookDeliveries(ctx, webhookRetain); err != nil {
 			log.Warn("serve: purge old webhook deliveries failed", "err", err)
@@ -1006,6 +1011,41 @@ func runLeaderTasks(ctx context.Context, log *slog.Logger, cfg *serveConfig, dep
 // breaking running deployments: callers pass the canonical key first
 // and the deprecated key second. Logs a one-time deprecation warning
 // when the legacy key resolves the value.
+// buildMFAOptions assembles the auth.Store MFA options. TOTP encryption key is
+// derived from the daemon master key (so no new required secret; TOTP is simply
+// unavailable when the master key is unset). WebAuthn passkeys need the relying
+// party domain: taken from REACTOR_WEBAUTHN_RP_ID / _RP_ORIGIN, else derived
+// from REACTOR_DASHBOARD_URL. When neither yields a domain, passkeys stay off
+// and the /security page says so.
+func buildMFAOptions(log *slog.Logger, masterKey []byte) []auth.Option {
+	var opts []auth.Option
+	if key := auth.DeriveMFAKey(masterKey); key != nil {
+		opts = append(opts, auth.WithMFAKey(key))
+	} else {
+		log.Info("serve: TOTP disabled (no master key set; passkeys still work)")
+	}
+	rpOrigin := envFirst("REACTOR_WEBAUTHN_RP_ORIGIN")
+	if rpOrigin == "" {
+		rpOrigin = envFirst("REACTOR_DASHBOARD_URL")
+	}
+	rpID := envFirst("REACTOR_WEBAUTHN_RP_ID")
+	if rpID == "" {
+		rpID = auth.RPIDFromOrigin(rpOrigin)
+	}
+	if rpID == "" || rpOrigin == "" {
+		log.Info("serve: WebAuthn passkeys disabled (set REACTOR_WEBAUTHN_RP_ID + REACTOR_WEBAUTHN_RP_ORIGIN, or REACTOR_DASHBOARD_URL)")
+		return opts
+	}
+	wa, err := auth.NewWebAuthn(rpID, "Reactor", []string{rpOrigin})
+	if err != nil {
+		log.Warn("serve: WebAuthn passkeys disabled (invalid config)", "err", err)
+		return opts
+	}
+	opts = append(opts, auth.WithWebAuthn(wa))
+	log.Info("serve: WebAuthn passkeys enabled", "rp_id", rpID, "rp_origin", rpOrigin)
+	return opts
+}
+
 func envFirst(keys ...string) string {
 	for i, k := range keys {
 		if v := os.Getenv(k); v != "" {

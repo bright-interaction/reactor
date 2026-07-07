@@ -14,10 +14,11 @@ import (
 )
 
 // Ceremony purposes (also the CHECK values on webauthn_challenges.purpose).
+// Exported so the server layer can name the assertion purpose type-safely.
 const (
-	purposeRegister = "register"
-	purposeLogin    = "login"
-	purposeStepUp   = "stepup"
+	PurposeRegister = "register"
+	PurposeLogin    = "login"
+	PurposeStepUp   = "stepup"
 )
 
 // ErrCloneWarning is returned when an assertion's signature counter regressed,
@@ -139,7 +140,7 @@ func (s *Store) BeginWebAuthnRegistration(ctx context.Context, u User) (optionsJ
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: begin registration: %w", err)
 	}
-	id, err := s.putChallenge(ctx, u.ID, purposeRegister, sd)
+	id, err := s.putChallenge(ctx, u.ID, PurposeRegister, sd)
 	if err != nil {
 		return nil, "", err
 	}
@@ -156,7 +157,7 @@ func (s *Store) FinishWebAuthnRegistration(ctx context.Context, u User, challeng
 	if s.wa == nil {
 		return ErrWebAuthnMissing
 	}
-	sd, chUser, err := s.takeChallenge(ctx, challengeID, purposeRegister)
+	sd, chUser, err := s.takeChallenge(ctx, challengeID, PurposeRegister)
 	if err != nil {
 		return err
 	}
@@ -202,13 +203,13 @@ func (s *Store) insertCredential(ctx context.Context, userID string, cred *webau
 }
 
 // BeginWebAuthnAssertion starts a login or step-up assertion for a known user.
-// purpose must be purposeLogin or purposeStepUp; it pins the challenge so a
+// purpose must be PurposeLogin or PurposeStepUp; it pins the challenge so a
 // login assertion cannot be replayed to satisfy a step-up or vice versa.
 func (s *Store) BeginWebAuthnAssertion(ctx context.Context, u User, purpose string) (optionsJSON []byte, challengeID string, err error) {
 	if s.wa == nil {
 		return nil, "", ErrWebAuthnMissing
 	}
-	if purpose != purposeLogin && purpose != purposeStepUp {
+	if purpose != PurposeLogin && purpose != PurposeStepUp {
 		return nil, "", fmt.Errorf("auth: invalid assertion purpose %q", purpose)
 	}
 	wu, err := s.buildWAUser(ctx, u)
@@ -240,7 +241,7 @@ func (s *Store) FinishWebAuthnAssertion(ctx context.Context, u User, purpose, ch
 	if s.wa == nil {
 		return ErrWebAuthnMissing
 	}
-	if purpose != purposeLogin && purpose != purposeStepUp {
+	if purpose != PurposeLogin && purpose != PurposeStepUp {
 		return fmt.Errorf("auth: invalid assertion purpose %q", purpose)
 	}
 	sd, chUser, err := s.takeChallenge(ctx, challengeID, purpose)
