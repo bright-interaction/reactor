@@ -526,7 +526,7 @@ func (s *Store) MintAPIToken(ctx context.Context, userID, name string, ttl time.
 	if _, err := rand.Read(rawBytes); err != nil {
 		return "", "", err
 	}
-	raw := "arc_" + base64.RawURLEncoding.EncodeToString(rawBytes)
+	raw := "rtr_" + base64.RawURLEncoding.EncodeToString(rawBytes)
 	hashHex := hashToken(raw)
 	id, err := newID("tok_")
 	if err != nil {

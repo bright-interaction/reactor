@@ -26,7 +26,7 @@ Mounted at `POST /mcp` on the dashboard server. Same BasicAuth + RateLimit middl
 
 ```sh
 curl -X POST https://reactor.example.com/mcp \
-  -H "Authorization: Bearer arc_..." \
+  -H "Authorization: Bearer rtr_..." \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "id": 1, "method": "initialize"}'
 ```
@@ -284,7 +284,7 @@ Append a post-mortem for a failed run. The dispatcher auto-fires this for `faile
 
 ```sh
 curl -sS -X POST https://reactor.example.com/mcp \
-  -H "Authorization: Bearer arc_..." \
+  -H "Authorization: Bearer rtr_..." \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
