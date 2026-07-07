@@ -1,0 +1,19 @@
+# gitleaks config for Reactor (used by the public-mirror publish gate and any
+# local scan). Extends the default ruleset, then allowlists documentation auth
+# EXAMPLES: the curl-auth heuristics flag any `curl -H "Authorization: Bearer X"`
+# or `curl -u user:pass` line, including ones that use obvious placeholders. A
+# real leaked credential would not carry these placeholder markers, so it is
+# still caught; only the doc placeholders are suppressed.
+title = "reactor"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation auth examples use obvious placeholders, not real secrets"
+regexes = [
+  '''YOUR_TOKEN_HERE''',
+  '''YOUR_PASSWORD''',
+  '''YOUR_USER''',
+  '''Bearer (arc|rtr)_(\.\.\.|<base64>|YOUR_)''',
+]

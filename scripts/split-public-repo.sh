@@ -107,9 +107,9 @@ fi
 # Authoritative secret scan: the single-branch clone IS the publish payload.
 if command -v gitleaks >/dev/null 2>&1; then
   echo "Scanning mirror history for secrets (gitleaks) ..."
-  if ! ( cd "$CLONE" && gitleaks detect --source . --no-banner --redact >/dev/null 2>&1 ); then
+  if ! ( cd "$CLONE" && gitleaks detect --source . --config .gitleaks.toml --no-banner --redact >/dev/null 2>&1 ); then
     echo "REFUSING: gitleaks found a secret in the mirror history:" >&2
-    ( cd "$CLONE" && gitleaks detect --source . --no-banner --redact ) >&2 || true
+    ( cd "$CLONE" && gitleaks detect --source . --config .gitleaks.toml --no-banner --redact ) >&2 || true
     exit 1
   fi
   echo "  no secrets in mirror history: OK"
