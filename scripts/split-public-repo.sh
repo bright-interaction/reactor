@@ -87,6 +87,12 @@ REDACT="$WORK/redactions.txt"
   echo 'rtr_YOUR_TOKEN_HERE==>rtr_YOUR_TOKEN_HERE'
   echo 'rtr_YOUR_TOKEN_HERE==>rtr_YOUR_TOKEN_HERE'
   echo 'YOUR_PASSWORD==>YOUR_PASSWORD'
+  # Test-fixture example secrets in older history (NOT real: the Stripe docs
+  # example key + an all-x ghp_ placeholder). Current tests split the literals;
+  # this scrubs the old contiguous forms so GitHub push protection accepts the
+  # mirror. Redacted forms are too short to match the Stripe/GitHub detectors.
+  echo 'sk_live_REDACTED==>sk_live_REDACTED'
+  echo 'ghp_REDACTED==>ghp_REDACTED'
 } > "$REDACT"
 echo "Redacting internal infra hostnames from all history ..."
 ( cd "$CLONE" && git filter-repo --force --replace-text "$REDACT" --replace-message "$REDACT" )
