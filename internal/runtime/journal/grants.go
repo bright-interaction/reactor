@@ -25,6 +25,18 @@ func (j *Journal) GrantSecret(ctx context.Context, workflowID, credentialID, gra
 	if workflowID == "" || credentialID == "" {
 		return errors.New("journal: grant: workflow_id and credential_id required")
 	}
+	// Cross-tenant refusal: a grant must never link a workflow to a credential
+	// owned by a different tenant (that is the cross-tenant secret-disclosure
+	// path, since HasGrant only checks the (workflow, credential) pair). Look
+	// both up and refuse when both rows exist with differing tenants. When
+	// either row is absent there is nothing to cross, so we don't force
+	// existence here (the calling surface reports unknown ids).
+	var wfTenant, credTenant sql.NullString
+	_ = j.db.QueryRowContext(ctx, j.bind(`SELECT tenant_id FROM workflows WHERE id = $1`), workflowID).Scan(&wfTenant)
+	_ = j.db.QueryRowContext(ctx, j.bind(`SELECT tenant_id FROM credentials WHERE id = $1 AND deleted_at IS NULL`), credentialID).Scan(&credTenant)
+	if wfTenant.Valid && credTenant.Valid && wfTenant.String != credTenant.String {
+		return fmt.Errorf("journal: grant refused: workflow tenant %q != credential tenant %q (cross-tenant grants are not allowed)", wfTenant.String, credTenant.String)
+	}
 	q := `INSERT INTO workflow_secret_grants (workflow_id, credential_id, granted_by, note)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (workflow_id, credential_id) DO UPDATE SET

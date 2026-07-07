@@ -688,7 +688,11 @@ func (s *Server) workflowSaveCode(w http.ResponseWriter, r *http.Request) {
 	dagBytes, _ := os.ReadFile(filepath.Join(dir, "dag.json"))
 
 	if status, err := s.writeValidatedCode(r.Context(), slug, dir, body, dagBytes); err != nil {
-		if status == http.StatusUnprocessableEntity || status == http.StatusInternalServerError {
+		// 422 is a build/lint failure: the workflow author needs the compiler
+		// output to fix their own code, so surface it. Everything else
+		// (including 500) is an internal error that must not leak SQL/paths/vault
+		// detail to the client; route it through the generic error page.
+		if status == http.StatusUnprocessableEntity {
 			http.Error(w, err.Error(), status)
 		} else {
 			s.errorPage(w, "save code", err)

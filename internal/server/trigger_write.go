@@ -164,6 +164,17 @@ func (s *Server) createCronTrigger(w http.ResponseWriter, r *http.Request, slug,
 		http.Error(w, "cron spec required (5-field cron expression)", http.StatusBadRequest)
 		return
 	}
+	// Validate the spec + timezone the SAME way the cron driver parses them, so
+	// an invalid expression is rejected here with actionable feedback instead of
+	// being silently accepted and then never firing.
+	full := spec
+	if timezone != "" {
+		full = "CRON_TZ=" + timezone + " " + spec
+	}
+	if _, err := robfig.ParseStandard(full); err != nil {
+		http.Error(w, "invalid cron spec or timezone: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	cfgMap := map[string]string{"spec": spec}
 	if timezone != "" {
 		cfgMap["timezone"] = timezone

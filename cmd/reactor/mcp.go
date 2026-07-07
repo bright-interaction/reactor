@@ -156,6 +156,12 @@ func cmdMCPStdio(ctx context.Context, log *slog.Logger, args []string) error {
 				}
 				return "", err
 			}
+			// Admission parity with the dispatcher: never run a disabled
+			// workflow (the daemon's dispatch path enforces this; the MCP
+			// dispatch used to skip it entirely).
+			if enabled, eErr := j.IsWorkflowEnabled(ctx, wfID); eErr == nil && !enabled {
+				return "", fmt.Errorf("dispatch_workflow: workflow %q is disabled; enable it before running", slug)
+			}
 			binary, err := reg.BinaryPath(slug)
 			if err != nil {
 				return "", err
@@ -188,7 +194,17 @@ func cmdMCPStdio(ctx context.Context, log *slog.Logger, args []string) error {
 				Input:            meta,
 				SignalSigningKey: signKey,
 			}
-			status, err := sup.Run(ctx)
+			// Panic recovery: a panicking workflow subprocess handler must not
+			// crash the one-shot MCP process (the daemon's dispatcher recovers
+			// per-run; this hand-rolled path did not).
+			status, err := func() (s string, e error) {
+				defer func() {
+					if r := recover(); r != nil {
+						e = fmt.Errorf("panic in run %s: %v", runID, r)
+					}
+				}()
+				return sup.Run(ctx)
+			}()
 			if err != nil {
 				return runID, fmt.Errorf("dispatch_workflow: run %s status=%s err=%w", runID, status, err)
 			}
