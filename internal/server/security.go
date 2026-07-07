@@ -324,12 +324,19 @@ func (s *Server) securityStepUpTOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = r.ParseForm()
-	code := strings.TrimSpace(r.PostFormValue("code"))
-	verified, err := s.Auth.VerifyTOTP(r.Context(), me.ID, code)
-	if err != nil || !verified {
+	throttleKey := clientIP(r) + "|mfa|" + me.ID
+	if s.loginThrottle().locked(throttleKey) {
 		http.Redirect(w, r, "/security?msg="+msgStepUpFailed, http.StatusSeeOther)
 		return
 	}
+	code := strings.TrimSpace(r.PostFormValue("code"))
+	verified, err := s.Auth.VerifyTOTP(r.Context(), me.ID, code)
+	if err != nil || !verified {
+		s.loginThrottle().recordFailure(throttleKey)
+		http.Redirect(w, r, "/security?msg="+msgStepUpFailed, http.StatusSeeOther)
+		return
+	}
+	s.loginThrottle().reset(throttleKey)
 	if err := s.Auth.MarkSessionElevated(r.Context(), sessionCookieFromContext(r.Context()), auth.StepUpWindow); err != nil {
 		s.errorPage(w, "elevate session", err)
 		return

@@ -216,7 +216,10 @@ func (s *Store) takeChallenge(ctx context.Context, id, purpose string) (*webauth
 	if err := tx.Commit(); err != nil {
 		return nil, "", fmt.Errorf("auth: take challenge commit: %w", err)
 	}
-	if expires, perr := parseTime(expiresStr); perr == nil && time.Now().UTC().After(expires) {
+	// Fail closed: an unparseable expiry is treated as expired rather than
+	// silently accepted (the go-webauthn library timeout is not enabled here, so
+	// this is the only TTL gate).
+	if expires, perr := parseTime(expiresStr); perr != nil || time.Now().UTC().After(expires) {
 		return nil, "", ErrChallengeExpired
 	}
 	var sd webauthn.SessionData

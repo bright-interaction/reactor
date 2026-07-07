@@ -58,6 +58,7 @@ type authStore interface {
 	ResolveSessionWithState(ctx context.Context, cookieValue string) (auth.User, auth.SessionState, error)
 	ResolveAPIToken(ctx context.Context, raw string) (auth.User, error)
 	CountUsers(ctx context.Context) (int, error)
+	HasMFA(ctx context.Context, userID string) (bool, error)
 }
 
 // SessionAuthConfig wires the multi-source auth middleware. The
@@ -136,7 +137,12 @@ func SessionAuth(cfg SessionAuthConfig) func(http.Handler) http.Handler {
 				})
 			}
 
-			// (2) Bearer token.
+			// (2) Bearer token. API tokens are a SEPARATE, non-interactive
+			// credential class (own table, no factor dimension), minted only by
+			// an already-authenticated session. They intentionally skip the
+			// mfa_pending gate, and because this branch never stashes a session
+			// state, requireStepUp always fails for a token, so a token cannot
+			// reach step-up-gated surfaces either.
 			if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 				raw := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 				if raw != "" {
@@ -151,6 +157,25 @@ func SessionAuth(cfg SessionAuthConfig) func(http.Handler) http.Handler {
 			// (3) Basic against the users table.
 			if user, pass, ok := r.BasicAuth(); ok && user != "" {
 				if u, err := cfg.Store.Authenticate(ctx, user, pass); err == nil {
+					// HTTP Basic is single-factor (password only). A user who has
+					// enrolled a second factor must NOT be able to satisfy a
+					// request with their password alone here; that would defeat
+					// the mfa_pending gate the interactive cookie login builds.
+					// Refuse and direct them to the dashboard sign-in flow.
+					// Fail closed: a HasMFA lookup error denies rather than grants.
+					hasMFA, herr := cfg.Store.HasMFA(ctx, u.ID)
+					if herr != nil {
+						http.Error(w, "auth error", http.StatusInternalServerError)
+						return
+					}
+					if hasMFA {
+						if wantsHTML(r) {
+							http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.Path), http.StatusSeeOther)
+						} else {
+							http.Error(w, "multi-factor authentication required: sign in via the dashboard, not HTTP Basic", http.StatusUnauthorized)
+						}
+						return
+					}
 					r = r.WithContext(withUser(ctx, u))
 					next.ServeHTTP(w, r)
 					return

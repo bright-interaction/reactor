@@ -1,7 +1,8 @@
 # RFC: Command Automations + Supervised Execution
 
-Status: draft / design. Not yet implemented. This document is the security
-contract the implementation must satisfy.
+Status: Phase 1 (WebAuthn passkeys + TOTP + step-up sudo mode) implemented;
+phases 2-4 are design. This document is the security contract the
+implementation must satisfy.
 
 ## Motivation
 
@@ -127,7 +128,11 @@ command execution ships, add:
 ## Phasing
 
 - Phase 1: WebAuthn passkeys + TOTP + step-up sudo mode (auth foundation; also
-  fixes the general MFA gap).
+  fixes the general MFA gap). DONE. Enroll factors at `/security`; a user with a
+  factor is challenged at login and must step up ("sudo") for sensitive changes.
+  TOTP secrets are AES-256-GCM encrypted (key derived from the daemon master key
+  via HKDF); passkeys need `REACTOR_WEBAUTHN_RP_ID` + `REACTOR_WEBAUTHN_RP_ORIGIN`
+  (or `REACTOR_DASHBOARD_URL`).
 - Phase 2: Command Automation store + visual DAG + git versioning (safe, no exec).
 - Phase 3: Sandboxed command runner (container) behind the flag + all gates.
 - Phase 4: SSH step + external-host-agent delegation option.
