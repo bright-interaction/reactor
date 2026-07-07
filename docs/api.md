@@ -34,7 +34,7 @@ Lifetime: 7 days. `POST /logout` destroys the row.
 Minted at `/tokens` in the dashboard. The raw token (`arc_<base64>`) is shown exactly once at mint time.
 
 ```sh
-curl -H "Authorization: Bearer rtr_YOUR_TOKEN_HERE..." \
+curl -H "Authorization: Bearer arc_YOUR_TOKEN_HERE" \
   https://reactor.example.com/runs
 ```
 
@@ -45,7 +45,7 @@ Tokens have the same role/permissions as the issuing user. Revoke with `POST /to
 Falls back to user-table authentication when at least one user exists, and to the legacy env-var BasicAuth (`REACTOR_BASIC_AUTH_USER` + `REACTOR_BASIC_AUTH_PASSWORD_SHA256`) on fresh deployments.
 
 ```sh
-curl -u alice:YOUR_PASSWORD https://reactor.example.com/runs
+curl -u "$YOUR_USER:$YOUR_PASSWORD" https://reactor.example.com/runs
 ```
 
 ### Public endpoints (no auth)
