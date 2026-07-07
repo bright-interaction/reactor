@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // This file renders a run's execution as a flow diagram: the workflow's step

@@ -1,6 +1,6 @@
 [Unit]
 Description=Reactor daemon
-Documentation=https://github.com/brightinteraction/reactor
+Documentation=https://github.com/bright-interaction/reactor
 After=network-online.target
 Wants=network-online.target
 

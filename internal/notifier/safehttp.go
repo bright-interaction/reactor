@@ -4,7 +4,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/brightinteraction/reactor/internal/safehttp"
+	"github.com/bright-interaction/reactor/internal/safehttp"
 )
 
 // ssrfSafeClient returns an *http.Client hardened against SSRF for

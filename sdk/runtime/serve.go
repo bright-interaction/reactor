@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/brightinteraction/reactor/sdk"
-	"github.com/brightinteraction/reactor/sdk/vault"
+	"github.com/bright-interaction/reactor/sdk"
+	"github.com/bright-interaction/reactor/sdk/vault"
 )
 
 // Serve is the entrypoint AI-generated workflow main.go calls. It connects

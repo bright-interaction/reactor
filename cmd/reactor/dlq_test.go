@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brightinteraction/reactor/internal/migrate"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 
 	"io"
 	"log/slog"

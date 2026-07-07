@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // tenantExport streams a tenant's data as a JSON download (GDPR portability).

@@ -9,7 +9,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // cmdReplay walks the journal for a given run-id and prints the recorded

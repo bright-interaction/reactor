@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	ahttp "github.com/brightinteraction/reactor/sdk/http"
+	ahttp "github.com/bright-interaction/reactor/sdk/http"
 )
 
 // BaseURL is a var so tests can point it at a fake server.

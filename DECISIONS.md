@@ -1,7 +1,7 @@
 # Reactor: Locked Decisions (v0)
 
 > **Working codename only.** "Reactor" will be renamed before the public release.
-> The Go module path `github.com/brightinteraction/reactor` and the binary name
+> The Go module path `github.com/bright-interaction/reactor` and the binary name
 > `reactor` are placeholders; the rename is a `go mod edit` + import sweep when
 > the final name lands.
 

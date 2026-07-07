@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/catalog"
-	"github.com/brightinteraction/reactor/internal/oauth"
+	"github.com/bright-interaction/reactor/internal/catalog"
+	"github.com/bright-interaction/reactor/internal/oauth"
 )
 
 // integrations is the Make-style single page to connect apps: OAuth services

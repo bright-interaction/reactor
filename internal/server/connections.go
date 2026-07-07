@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/brightinteraction/reactor/internal/oauth"
+	"github.com/bright-interaction/reactor/internal/oauth"
 )
 
 // viewerTenant is the tenant a request's viewer belongs to (their own tenant,

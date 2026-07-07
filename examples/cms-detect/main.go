@@ -24,9 +24,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brightinteraction/reactor/sdk"
-	ahttp "github.com/brightinteraction/reactor/sdk/http"
-	"github.com/brightinteraction/reactor/sdk/runtime"
+	"github.com/bright-interaction/reactor/sdk"
+	ahttp "github.com/bright-interaction/reactor/sdk/http"
+	"github.com/bright-interaction/reactor/sdk/runtime"
 )
 
 //nolint:gochecknoglobals // SDK contract: package-level declarations.

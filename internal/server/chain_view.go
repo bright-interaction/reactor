@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // renderDownstreamChainSection draws the "Workflows that fire when

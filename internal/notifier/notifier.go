@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // Event is everything a sender needs to render an alert. Snake_case

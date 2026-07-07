@@ -15,7 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/brightinteraction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/credentials"
 )
 
 // dlqRetry handles POST /dlq/{id}/retry. Drives the dispatcher's

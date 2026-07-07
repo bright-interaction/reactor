@@ -13,9 +13,9 @@ package main
 import (
 	"context"
 
-	"github.com/brightinteraction/reactor/sdk"
-	"github.com/brightinteraction/reactor/sdk/blocks"
-	"github.com/brightinteraction/reactor/sdk/runtime"
+	"github.com/bright-interaction/reactor/sdk"
+	"github.com/bright-interaction/reactor/sdk/blocks"
+	"github.com/bright-interaction/reactor/sdk/runtime"
 )
 
 //nolint:gochecknoglobals // SDK contract: package-level declarations.

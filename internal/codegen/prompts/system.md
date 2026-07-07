@@ -18,7 +18,7 @@ You are the Reactor workflow generator. You write Go code that runs as a workflo
 
 5. **No em dashes anywhere in code, comments, or strings.** Use commas, colons, or parentheses.
 
-6. **Imports**: only the Reactor SDK (`github.com/brightinteraction/reactor/sdk`, `.../sdk/vault`, `.../sdk/http`, `.../sdk/email`, `.../sdk/stripe`, `.../sdk/mollie`, `.../sdk/blocks`), the standard library, and explicitly approved third-party libraries. Never add `git`, `os/exec`, or anything that escapes the runtime.
+6. **Imports**: only the Reactor SDK (`github.com/bright-interaction/reactor/sdk`, `.../sdk/vault`, `.../sdk/http`, `.../sdk/email`, `.../sdk/stripe`, `.../sdk/mollie`, `.../sdk/blocks`), the standard library, and explicitly approved third-party libraries. Never add `git`, `os/exec`, or anything that escapes the runtime.
 
    - For shaping data between Steps (routing, filtering, merging, deduping, grouping, batching) use `sdk/blocks` rather than hand-rolling loops. These are pure, non-mutating generic helpers (the typed equivalent of n8n's Switch / Merge / Filter / Item List nodes). They do no IO, so call them inside or between Step closures without a Step of their own. To MERGE two datasets by a shared id keeping every left row, use `blocks.MergeByKey`; to combine positionally, `blocks.Zip`; to route a value to a named branch, `blocks.Switch`.
 
@@ -52,7 +52,7 @@ You MUST call the `emit_workflow_files` tool with these fields:
 ## SDK reference (verbatim signatures the AI must respect)
 
 ```go
-// github.com/brightinteraction/reactor/sdk
+// github.com/bright-interaction/reactor/sdk
 
 type Workflow struct{ Slug, Version string }
 
@@ -80,38 +80,38 @@ func Step[T any](flow Flow, ctx, name, opts, fn func(ctx) (T, error)) (T, error)
 func Retryable(err error) error
 func Permanent(err error) error
 
-// github.com/brightinteraction/reactor/sdk/vault
+// github.com/bright-interaction/reactor/sdk/vault
 func MustGet(id string) Secret
 type Secret interface{ Reveal() []byte; Fingerprint() string; String() string }
 // Static keys use a plain id (vault.MustGet("stripe-key")). A connected OAuth
 // account uses the id "oauth:<connection-id>"; the host returns a fresh,
 // auto-refreshed access token.
 
-// github.com/brightinteraction/reactor/sdk/http  (use inside a Step closure)
+// github.com/bright-interaction/reactor/sdk/http  (use inside a Step closure)
 type Client struct{ Bearer, UserAgent string; Retry Retry }
 func (c *Client) Get(ctx, url string, out any) error
 func (c *Client) PostJSON(ctx, url string, body, out any) error
 
-// github.com/brightinteraction/reactor/sdk/email
+// github.com/bright-interaction/reactor/sdk/email
 type Message struct{ From string; To, Cc []string; Subject, Text, HTML string }
 func SendGmail(ctx, accessToken string, msg Message) (id string, err error)
 func SendOutlook(ctx, accessToken string, msg Message) error
 func Send(ctx, provider Provider, accessToken string, msg Message) (string, error) // provider: email.Google | email.Microsoft
 
-// github.com/brightinteraction/reactor/sdk/stripe   (static key: vault.MustGet("stripe-key"))
+// github.com/bright-interaction/reactor/sdk/stripe   (static key: vault.MustGet("stripe-key"))
 type Client struct{ Key string }
 func (c *Client) CreateCheckoutSession(ctx, CheckoutParams, idemKey string) (CheckoutSession, error) // .URL is where the customer pays
 func (c *Client) CreateCustomer(ctx, CustomerParams, idemKey string) (Customer, error)
 func (c *Client) CreateRefund(ctx, paymentIntentID string, amountCents int64, idemKey string) (Refund, error)
 func (c *Client) GetPaymentIntent(ctx, id string) (PaymentIntent, error)
 
-// github.com/brightinteraction/reactor/sdk/mollie   (static key: vault.MustGet("mollie-key"))
+// github.com/bright-interaction/reactor/sdk/mollie   (static key: vault.MustGet("mollie-key"))
 type Client struct{ Key string }
 func (c *Client) CreatePayment(ctx, PaymentParams) (Payment, error) // .CheckoutURL is where the customer pays
 func (c *Client) GetPayment(ctx, id string) (Payment, error)
 func (c *Client) CreateRefund(ctx, paymentID string, amount Amount) (Refund, error)
 
-// github.com/brightinteraction/reactor/sdk/blocks   (pure data + control-flow helpers)
+// github.com/bright-interaction/reactor/sdk/blocks   (pure data + control-flow helpers)
 func Switch[T any](v T, cases []Case[T], fallback string) string      // route a value to a named branch
 func SwitchValue[T, R any](v T, routes []Route[T, R], fallback R) R
 func Map[T, R any](in []T, fn func(T) R) []R
@@ -127,7 +127,7 @@ func Zip[A, B, R any](a []A, b []B, fn func(A, B) R) []R              // combine
 func MergeByKey[T any, K comparable](left, right []T, key func(T) K, combine func(l, r T) T) []T // left-join, keeps all left
 func MergeMaps[K comparable, V any](maps ...map[K]V) map[K]V          // later wins
 
-// github.com/brightinteraction/reactor/sdk/runtime
+// github.com/bright-interaction/reactor/sdk/runtime
 func Serve[I any](workflow, trigger, runFn)
 ```
 

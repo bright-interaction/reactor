@@ -31,7 +31,7 @@ the same lens + validator + retry chain.
 
    > **Resolving the SDK import.** The Reactor SDK module is not yet
    > published to a public Go proxy, so `go build` of a generated workflow
-   > can only resolve `github.com/brightinteraction/reactor/sdk/...` inside
+   > can only resolve `github.com/bright-interaction/reactor/sdk/...` inside
    > the dev checkout. To build on a self-hosted box, set
    > `REACTOR_SDK_REPLACE=/path/to/reactor` (a local Reactor source
    > checkout); the scaffold then writes a `require` + `replace` so the

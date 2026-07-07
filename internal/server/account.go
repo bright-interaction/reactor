@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // fmtInt2 renders an integer with thousands separators (readable usage counts).

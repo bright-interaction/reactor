@@ -57,7 +57,7 @@ RUN mkdir -p /wfcache /wfwarm \
     && cp examples/cron-echo/main.go /wfwarm/main.go \
     && cd /wfwarm \
     && GOMODCACHE=/wfcache go mod init reactor-workflow/warm \
-    && GOMODCACHE=/wfcache go mod edit -require=github.com/brightinteraction/reactor@v0.0.0 -replace=github.com/brightinteraction/reactor=/src \
+    && GOMODCACHE=/wfcache go mod edit -require=github.com/bright-interaction/reactor@v0.0.0 -replace=github.com/bright-interaction/reactor=/src \
     && GOMODCACHE=/wfcache GOFLAGS=-mod=mod CGO_ENABLED=0 go build -o /dev/null .
 
 # Runtime: golang-alpine so the daemon has a Go toolchain to compile
@@ -68,7 +68,7 @@ RUN apk add --no-cache ca-certificates git \
     && adduser -D -u 65532 reactor
 COPY --from=build /out/reactor /usr/local/bin/reactor
 # SDK source: generated workflows import the (unpublished) module
-# github.com/brightinteraction/reactor; initModule rewrites that import to
+# github.com/bright-interaction/reactor; initModule rewrites that import to
 # this local copy via a go.mod replace so the workflow links the same SDK.
 COPY --from=build /src /opt/reactor-src
 # Minimal module cache (workflow-build deps only; see the warm step above),

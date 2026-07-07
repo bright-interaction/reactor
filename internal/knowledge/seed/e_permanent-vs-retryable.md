@@ -3,7 +3,7 @@ id: e_permanent-vs-retryable
 topic: errors
 title: Wrap step errors with reactor.Permanent or Retryable so the supervisor knows whether to retry
 created_by: seed
-sources: [https://pkg.go.dev/github.com/brightinteraction/reactor/sdk]
+sources: [https://pkg.go.dev/github.com/bright-interaction/reactor/sdk]
 tags: [errors, retry, dlq, supervisor]
 gold: true
 citation_count: 0

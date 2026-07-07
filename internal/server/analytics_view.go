@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // renderAnalyticsStrip is the headline rollup at the top of the home

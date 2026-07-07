@@ -4,11 +4,11 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/brightinteraction/reactor/internal/catalog"
-	"github.com/brightinteraction/reactor/internal/codegen"
-	knowledgepkg "github.com/brightinteraction/reactor/internal/knowledge"
-	"github.com/brightinteraction/reactor/internal/registry"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/catalog"
+	"github.com/bright-interaction/reactor/internal/codegen"
+	knowledgepkg "github.com/bright-interaction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/registry"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // editValidator adapts codegen.GoBuildValidator to the server's

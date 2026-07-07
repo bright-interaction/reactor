@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/codegen"
 )
 
 // cmdLint walks the path argument, lints every .go file (or just the

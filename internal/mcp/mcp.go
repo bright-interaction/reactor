@@ -38,11 +38,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
-	"github.com/brightinteraction/reactor/internal/credentials"
-	"github.com/brightinteraction/reactor/internal/graph"
-	"github.com/brightinteraction/reactor/internal/knowledge"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/graph"
+	"github.com/bright-interaction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // Protocol version reported during initialize. Mirrors Anthropic's MCP
@@ -549,7 +549,7 @@ func (s *Server) registerTools() {
 			s.tools["reactor_create_workflow"] = toolDef{
 				tool: Tool{
 					Name:        "reactor_create_workflow",
-					Description: "Author a workflow: compile + register it from Go source you supply. Pass main_go (the workflow's main.go, importing github.com/brightinteraction/reactor) and an optional dag. The daemon builds it in-process with NO external API key: it runs the import allowlist (stdlib + the Reactor SDK only) + lint + `go build`, registers the workflows row, and returns the workflow id, ready for reactor_grant_secret + reactor_dispatch_workflow. This is the MCP authoring path: the AI client writes the code, Reactor builds it. Requires --allow-write.",
+					Description: "Author a workflow: compile + register it from Go source you supply. Pass main_go (the workflow's main.go, importing github.com/bright-interaction/reactor) and an optional dag. The daemon builds it in-process with NO external API key: it runs the import allowlist (stdlib + the Reactor SDK only) + lint + `go build`, registers the workflows row, and returns the workflow id, ready for reactor_grant_secret + reactor_dispatch_workflow. This is the MCP authoring path: the AI client writes the code, Reactor builds it. Requires --allow-write.",
 					InputSchema: map[string]any{
 						"type":     "object",
 						"required": []string{"slug", "main_go"},

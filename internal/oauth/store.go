@@ -16,7 +16,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/vault"
+	"github.com/bright-interaction/reactor/internal/vault"
 )
 
 // secureURL allows https anywhere, or http only on loopback (local dev/tests).

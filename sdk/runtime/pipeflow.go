@@ -24,9 +24,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/brightinteraction/reactor/sdk"
-	"github.com/brightinteraction/reactor/sdk/vault"
-	"github.com/brightinteraction/reactor/sdk/wire"
+	"github.com/bright-interaction/reactor/sdk"
+	"github.com/bright-interaction/reactor/sdk/vault"
+	"github.com/bright-interaction/reactor/sdk/wire"
 )
 
 // PipeFlow implements reactor.Flow over a JSON-lines pipe to the host.

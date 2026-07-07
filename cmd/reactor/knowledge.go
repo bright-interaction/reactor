@@ -12,8 +12,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
-	"github.com/brightinteraction/reactor/internal/knowledge"
+	"github.com/bright-interaction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/knowledge"
 )
 
 // cmdKnowledge dispatches the knowledge subcommand group:

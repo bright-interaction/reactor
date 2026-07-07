@@ -11,7 +11,7 @@ package wire
 import (
 	"io"
 
-	sdkwire "github.com/brightinteraction/reactor/sdk/wire"
+	sdkwire "github.com/bright-interaction/reactor/sdk/wire"
 )
 
 // Version is the wire protocol version; re-exported from sdk/wire.

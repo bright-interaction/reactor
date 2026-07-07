@@ -1,4 +1,4 @@
-module github.com/brightinteraction/reactor
+module github.com/bright-interaction/reactor
 
 go 1.25.10
 

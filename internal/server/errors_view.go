@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // errorsPage is the error log: every failed execution with the failing step's

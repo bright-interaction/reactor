@@ -19,9 +19,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/brightinteraction/reactor/sdk"
-	"github.com/brightinteraction/reactor/sdk/runtime"
-	"github.com/brightinteraction/reactor/sdk/vault"
+	"github.com/bright-interaction/reactor/sdk"
+	"github.com/bright-interaction/reactor/sdk/runtime"
+	"github.com/bright-interaction/reactor/sdk/vault"
 )
 
 var (

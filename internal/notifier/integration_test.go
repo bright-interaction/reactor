@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/brightinteraction/reactor/internal/dispatcher"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/dispatcher"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // TestDispatcherTerminalEventReachesNotifier proves the daemon's

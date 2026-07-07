@@ -24,7 +24,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/brightinteraction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/migrate"
 )
 
 // Version is set via ldflags at release time:

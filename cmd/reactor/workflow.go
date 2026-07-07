@@ -16,9 +16,9 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
-	"github.com/brightinteraction/reactor/internal/migrate"
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/migrate"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // cmdWorkflow dispatches the workflow subcommand group.

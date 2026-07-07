@@ -20,7 +20,7 @@ connection's metadata (its name).
 ## Pattern
 
 ```go
-import "github.com/brightinteraction/reactor/sdk/email"
+import "github.com/bright-interaction/reactor/sdk/email"
 
 _, err := reactor.Step(flow, ctx, "send-welcome", reactor.StepOpts{
     IdempotencyKey: "welcome:" + in.CustomerID, // sending is a side effect

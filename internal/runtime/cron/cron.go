@@ -25,7 +25,7 @@ import (
 
 	robfig "github.com/robfig/cron/v3"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // Dispatcher mirrors the webhook package's contract; cron and webhook share

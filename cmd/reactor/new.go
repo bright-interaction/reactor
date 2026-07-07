@@ -14,7 +14,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/codegen"
+	"github.com/bright-interaction/reactor/internal/codegen"
 )
 
 //go:embed scaffolds/*/*

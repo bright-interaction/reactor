@@ -15,7 +15,7 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
 
-	docsfs "github.com/brightinteraction/reactor/docs"
+	docsfs "github.com/bright-interaction/reactor/docs"
 )
 
 // docsOrder controls the left-rail order on the docs index. Pages

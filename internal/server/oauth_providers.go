@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/brightinteraction/reactor/internal/catalog"
-	"github.com/brightinteraction/reactor/internal/oauth"
+	"github.com/bright-interaction/reactor/internal/catalog"
+	"github.com/bright-interaction/reactor/internal/oauth"
 )
 
 // oauthProviders is the admin page to configure OAuth providers (the client

@@ -17,7 +17,7 @@ import (
 
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/brightinteraction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/credentials"
 )
 
 func TestDeliverFileWriteAtomicallyReplaces(t *testing.T) {

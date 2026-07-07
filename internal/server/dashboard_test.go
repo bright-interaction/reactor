@@ -13,7 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/brightinteraction/reactor/internal/registry"
+	"github.com/bright-interaction/reactor/internal/registry"
 )
 
 // stubValidator satisfies CodeValidator with a programmable result.

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/runtime/journal"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // fakeLookup implements ChannelLookup so the notifier tests don't

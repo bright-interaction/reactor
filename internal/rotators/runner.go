@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/brightinteraction/reactor/internal/credentials"
-	"github.com/brightinteraction/reactor/internal/vault"
+	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/vault"
 )
 
 // Runner drives the rotation pipeline: scan credentials needing

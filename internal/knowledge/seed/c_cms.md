@@ -22,7 +22,7 @@ WordPress uses Basic auth, not a Bearer token. The credential is stored as
 `username:application-password`; send it as a Basic header:
 
 ```go
-import ahttp "github.com/brightinteraction/reactor/sdk/http"
+import ahttp "github.com/bright-interaction/reactor/sdk/http"
 
 _, err := reactor.Step(flow, ctx, "create-post", reactor.StepOpts{
     IdempotencyKey: "wp-post:" + in.Slug, Timeout: 30 * time.Second,
