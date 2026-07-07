@@ -3,6 +3,7 @@ module github.com/bright-interaction/reactor
 go 1.25.10
 
 require (
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc
 	github.com/getsentry/sentry-go v0.47.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-webauthn/webauthn v0.17.4
@@ -18,7 +19,6 @@ require (
 )
 
 require (
-	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect

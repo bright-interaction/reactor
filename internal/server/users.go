@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -37,6 +38,33 @@ type AuthAdmin interface {
 	ListAPITokens(ctx context.Context, userID string) ([]auth.APIToken, error)
 	RevokeAPIToken(ctx context.Context, id, userID string) error
 	ResolveAPIToken(ctx context.Context, raw string) (auth.User, error)
+
+	// MFA: session assurance + factor management.
+	ResolveSessionWithState(ctx context.Context, cookieValue string) (auth.User, auth.SessionState, error)
+	CreatePendingSession(ctx context.Context, userID, userAgent, ip string, ttl time.Duration) (string, error)
+	ClearSessionMFAPending(ctx context.Context, cookieValue string) error
+	MarkSessionElevated(ctx context.Context, cookieValue string, window time.Duration) error
+	HasMFA(ctx context.Context, userID string) (bool, error)
+	ListMFAFactors(ctx context.Context, userID string) (auth.MFAFactors, error)
+	WebAuthnAvailable() bool
+	TOTPAvailable() bool
+
+	BeginWebAuthnRegistration(ctx context.Context, u auth.User) (optionsJSON []byte, challengeID string, err error)
+	FinishWebAuthnRegistration(ctx context.Context, u auth.User, challengeID string, responseBody []byte, name string) error
+	BeginWebAuthnAssertion(ctx context.Context, u auth.User, purpose string) (optionsJSON []byte, challengeID string, err error)
+	FinishWebAuthnAssertion(ctx context.Context, u auth.User, purpose, challengeID string, responseBody []byte) error
+	DeleteWebAuthnCredential(ctx context.Context, userID, rowID string) error
+	RenameWebAuthnCredential(ctx context.Context, userID, rowID, name string) error
+
+	BeginTOTPEnrollment(ctx context.Context, u auth.User) (secret, otpauthURL string, err error)
+	ConfirmTOTP(ctx context.Context, userID, code string) error
+	VerifyTOTP(ctx context.Context, userID, code string) (bool, error)
+	DisableTOTP(ctx context.Context, userID string) error
+	HasConfirmedTOTP(ctx context.Context, userID string) (bool, error)
+
+	GenerateRecoveryCodes(ctx context.Context, userID string) ([]string, error)
+	ConsumeRecoveryCode(ctx context.Context, userID, code string) (bool, error)
+	CountUnusedRecoveryCodes(ctx context.Context, userID string) (int, error)
 }
 
 // sessionStoreAdapter narrows AuthAdmin to the subset SessionAuth needs.
@@ -49,6 +77,9 @@ func (s sessionStoreAdapter) Authenticate(ctx context.Context, username, passwor
 }
 func (s sessionStoreAdapter) ResolveSession(ctx context.Context, cookieValue string) (auth.User, error) {
 	return s.a.ResolveSession(ctx, cookieValue)
+}
+func (s sessionStoreAdapter) ResolveSessionWithState(ctx context.Context, cookieValue string) (auth.User, auth.SessionState, error) {
+	return s.a.ResolveSessionWithState(ctx, cookieValue)
 }
 func (s sessionStoreAdapter) ResolveAPIToken(ctx context.Context, raw string) (auth.User, error) {
 	return s.a.ResolveAPIToken(ctx, raw)
@@ -105,21 +136,43 @@ func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.loginThrottle().reset(throttleKey)
-	cookie, err := s.Auth.CreateSession(r.Context(), u.ID, r.UserAgent(), clientIP(r), 7*24*time.Hour)
+
+	// If the user has a second factor enrolled, mint a PENDING session and send
+	// them to the MFA challenge. A pending session grants nothing but the MFA +
+	// logout routes until the factor clears (enforced in SessionAuth). Otherwise
+	// mint a full session as before.
+	hasMFA, err := s.Auth.HasMFA(r.Context(), u.ID)
+	if err != nil {
+		s.errorPage(w, "check mfa", err)
+		return
+	}
+	var cookie string
+	dest := next
+	if hasMFA {
+		cookie, err = s.Auth.CreatePendingSession(r.Context(), u.ID, r.UserAgent(), clientIP(r), 7*24*time.Hour)
+		dest = "/login/mfa?next=" + url.QueryEscape(next)
+	} else {
+		cookie, err = s.Auth.CreateSession(r.Context(), u.ID, r.UserAgent(), clientIP(r), 7*24*time.Hour)
+	}
 	if err != nil {
 		s.errorPage(w, "create session", err)
 		return
 	}
+	s.setSessionCookie(w, r, cookie)
+	http.Redirect(w, r, dest, http.StatusSeeOther)
+}
+
+// setSessionCookie writes the standard hardened session cookie.
+func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
-		Value:    cookie,
+		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.secureCookie(r),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int((7 * 24 * time.Hour).Seconds()),
 	})
-	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
 // safeNextPath sanitises a post-login redirect target. Only same-origin

@@ -46,6 +46,7 @@ var navItems = []navItem{
 	{"/plans", "Plans", "Billing & access", true},
 	{"/users", "Users", "Billing & access", true},
 	{"/tokens", "API tokens", "Billing & access", false},
+	{"/security", "Security", "Billing & access", false},
 	{"/docs", "Docs", "Help", false},
 	{"/healthz", "Health", "Help", false},
 }

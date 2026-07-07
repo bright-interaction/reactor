@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/bright-interaction/reactor/internal/auth"
@@ -23,11 +24,38 @@ func UserFromContext(ctx context.Context) (auth.User, bool) {
 	return u, ok
 }
 
+// sessionStateCtxKey / sessionCookieCtxKey carry the resolved session's MFA
+// assurance level and its raw cookie value, so step-up-gated handlers can read
+// the elevation window and mint a fresh one against the right session.
+type sessionStateCtxKey struct{}
+type sessionCookieCtxKey struct{}
+
+// SessionStateFromContext returns the resolved session's MFA assurance level.
+func SessionStateFromContext(ctx context.Context) (auth.SessionState, bool) {
+	st, ok := ctx.Value(sessionStateCtxKey{}).(auth.SessionState)
+	return st, ok
+}
+
+// sessionCookieFromContext returns the raw session cookie value for the request,
+// used to target ClearSessionMFAPending / MarkSessionElevated at this session.
+func sessionCookieFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(sessionCookieCtxKey{}).(string)
+	return v
+}
+
+func withSessionState(ctx context.Context, st auth.SessionState) context.Context {
+	return context.WithValue(ctx, sessionStateCtxKey{}, st)
+}
+
+func withSessionCookie(ctx context.Context, cookie string) context.Context {
+	return context.WithValue(ctx, sessionCookieCtxKey{}, cookie)
+}
+
 // authStore is the surface the middleware needs from the auth store.
 // Defined here at the consumer so tests can stub.
 type authStore interface {
 	Authenticate(ctx context.Context, username, password string) (auth.User, error)
-	ResolveSession(ctx context.Context, cookieValue string) (auth.User, error)
+	ResolveSessionWithState(ctx context.Context, cookieValue string) (auth.User, auth.SessionState, error)
 	ResolveAPIToken(ctx context.Context, raw string) (auth.User, error)
 	CountUsers(ctx context.Context) (int, error)
 }
@@ -80,10 +108,24 @@ func SessionAuth(cfg SessionAuthConfig) func(http.Handler) http.Handler {
 
 			// (1) cookie -> session.
 			if c, err := r.Cookie(SessionCookieName); err == nil && c.Value != "" {
-				u, err := cfg.Store.ResolveSession(ctx, c.Value)
+				u, st, err := cfg.Store.ResolveSessionWithState(ctx, c.Value)
 				if err == nil {
-					r = r.WithContext(withUser(ctx, u))
-					next.ServeHTTP(w, r)
+					ctx = withUser(ctx, u)
+					ctx = withSessionState(ctx, st)
+					ctx = withSessionCookie(ctx, c.Value)
+					// A pending session (password accepted, second factor still
+					// owed) may reach only the MFA-completion + logout routes;
+					// everything else bounces to the challenge. This is the gate
+					// that makes "has a factor" actually enforce the factor.
+					if st.MFAPending && !isMFACompletionRoute(r.URL.Path) {
+						if wantsHTML(r) {
+							http.Redirect(w, r, "/login/mfa?next="+url.QueryEscape(r.URL.Path), http.StatusSeeOther)
+						} else {
+							http.Error(w, "MFA required", http.StatusUnauthorized)
+						}
+						return
+					}
+					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
 				// Bad cookie: clear it so the browser does not keep
@@ -160,6 +202,13 @@ func isSessionAuthExempt(path string) bool {
 	// MCP client must present a Bearer API token (per-user identity +
 	// RBAC) instead of relying on the legacy shared BasicAuth.
 	return false
+}
+
+// isMFACompletionRoute lists what a pending (second-factor-owed) session may
+// reach: the MFA challenge page + its ceremony endpoints, and logout. Kept in
+// sync with the /login/mfa* routes mounted in mountAuthRoutes.
+func isMFACompletionRoute(path string) bool {
+	return path == "/login/mfa" || strings.HasPrefix(path, "/login/mfa/") || path == "/logout"
 }
 
 func wantsHTML(r *http.Request) bool {
