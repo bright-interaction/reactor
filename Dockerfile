@@ -63,7 +63,7 @@ RUN mkdir -p /wfcache /wfwarm \
 # Runtime: golang-alpine so the daemon has a Go toolchain to compile
 # workflows. Slightly larger than distroless, but the alternative is a
 # product whose core feature cannot run in production.
-FROM golang:1.26.4-alpine
+FROM golang:1.26.5-alpine
 RUN apk add --no-cache ca-certificates git \
     && adduser -D -u 65532 reactor
 COPY --from=build /out/reactor /usr/local/bin/reactor
