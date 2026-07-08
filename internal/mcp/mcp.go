@@ -251,7 +251,7 @@ func (s *Server) handle(ctx context.Context, method string, params json.RawMessa
 		if err != nil {
 			return map[string]any{
 				"content": []any{
-					map[string]any{"type": "text", "text": "error: " + err.Error()},
+					map[string]any{"type": "text", "text": "error: " + scrubToolError(err)},
 				},
 				"isError": true,
 			}, nil
@@ -268,6 +268,29 @@ func (s *Server) handle(ctx context.Context, method string, params json.RawMessa
 	default:
 		return nil, fmt.Errorf("%w: %s", errMethodNotFoundErr, method)
 	}
+}
+
+// scrubToolError genericizes internal-plumbing errors (DB/driver, network
+// transport, decrypt) that leak infra detail to the agent, logging the real
+// one server-side. It deliberately PRESERVES compiler diagnostics and
+// validation messages: create_workflow's go-build stderr is the authoring
+// feedback the agent needs to fix its source, so it must pass through.
+func scrubToolError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	for _, needle := range []string{
+		"dial tcp", "connection refused", "no such host", "i/o timeout",
+		"pq:", "SQLSTATE", "sql:", "database is locked",
+		"failed to decrypt", "cipher:", "x509:", "tls:",
+	} {
+		if strings.Contains(msg, needle) {
+			slog.Error("reactor mcp internal error", "err", err)
+			return "internal error"
+		}
+	}
+	return msg
 }
 
 // registerTools populates the tools map. Read tools always register;
