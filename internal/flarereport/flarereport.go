@@ -31,6 +31,7 @@ func InitFlare(service, release string) bool {
 		return false
 	}
 	slog.Info("flare: error reporting enabled", "service", service)
+	startHeartbeat(service)
 	return true
 }
 
