@@ -22,9 +22,11 @@ func InitFlare(service, release string) bool {
 		return false
 	}
 	err := sentry.Init(sentry.ClientOptions{
-		Dsn:        dsn,
-		Release:    release,
-		ServerName: service,
+		Dsn:              dsn,
+		Release:          release,
+		ServerName:       service,
+		EnableTracing:    true,
+		TracesSampleRate: tracesSampleRate(),
 	})
 	if err != nil {
 		slog.Warn("flare: error reporting disabled (sentry init failed)", "error", err)
@@ -44,6 +46,7 @@ func InitFlare(service, release string) bool {
 // when InitFlare was a no-op: capture calls on an uninitialized hub do
 // nothing.
 func FlareRecoverer(next http.Handler) http.Handler {
+	traced := flareTracer(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -61,7 +64,7 @@ func FlareRecoverer(next http.Handler) http.Handler {
 				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			}
 		}()
-		next.ServeHTTP(w, r)
+		traced.ServeHTTP(w, r)
 	})
 }
 
