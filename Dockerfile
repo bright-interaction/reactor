@@ -32,7 +32,17 @@
 #     -e REACTOR_BASIC_AUTH_PASSWORD_SHA256=<sha256-hex> \
 #     reactor:latest serve --root /var/lib/reactor
 
-FROM --platform=$BUILDPLATFORM golang:1.26.4-alpine AS build
+# Keep this in lockstep with ciGoToolchain in hephaestus/userworkflows/ci_go.go.
+# It was golang:1.26.4-alpine while CI compiled and govulnchecked reactor inside
+# 1.26.5, and 1.26.5 is pinned precisely to pick up the crypto/tls fix for
+# GO-2026-5856 (ECH privacy leak). So govulncheck was scanning a patched stdlib
+# that the shipped binary did not have: the gate was GREEN on a CVE that was live
+# in production. Note the asymmetry, because it is why this hid for so long: a CI
+# image OLDER than this stage fails loudly red, a NEWER one fails silently green.
+# The runtime stage below is also golang-alpine (the daemon compiles user
+# workflows at runtime); it does NOT build this binary, and mistaking it for the
+# builder is exactly how the drift stayed invisible.
+FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
