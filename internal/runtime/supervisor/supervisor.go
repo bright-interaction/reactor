@@ -373,6 +373,16 @@ func (d *dispatcher) handleStepEnd(ctx context.Context, f wire.Frame) error {
 	return d.write(ack)
 }
 
+// maxScheduleHorizon bounds how far into the future a workflow may push a
+// schedules.wake_at. Both wire.Sleep.UntilUnix and wire.AwaitSignal.TimeoutMs
+// are workflow-author controlled, and an out-of-range value formats to a
+// wake_at like "146138514283-06-19T..." which, stored as TEXT, sorts BEFORE
+// every real timestamp AND still satisfies the "wake_at <= now" predicate.
+// FindDueSchedules would then hit that row first on every tick and fail, so a
+// single poisoned row stops every suspended run in every tenant from ever
+// resuming. Ten years is far past any legitimate durable sleep.
+const maxScheduleHorizon = 10 * 365 * 24 * time.Hour
+
 func (d *dispatcher) handleSleep(ctx context.Context, f wire.Frame) error {
 	var body wire.Sleep
 	if err := wire.Unwrap(f, &body); err != nil {
@@ -402,8 +412,16 @@ func (d *dispatcher) handleSleep(ctx context.Context, f wire.Frame) error {
 		return fmt.Errorf("supervisor: lookup sleep schedule: %w", err)
 	}
 
+	now := d.sup.Now()
 	until := time.Unix(body.UntilUnix, 0)
-	wait := until.Sub(d.sup.Now())
+	if maxWake := now.Add(maxScheduleHorizon); until.After(maxWake) {
+		d.sup.Log.Warn("supervisor: sleep wake time exceeds the max horizon; clamping",
+			"run_id", d.sup.RunID, "step", body.StepName,
+			"requested_unix", body.UntilUnix,
+			"clamped_to", maxWake.UTC().Format(time.RFC3339))
+		until = maxWake
+	}
+	wait := until.Sub(now)
 
 	// Already past wake on the first call: the workflow body computed an
 	// UntilUnix in the past (e.g. negative duration). Ack immediately.
@@ -509,6 +527,13 @@ func (d *dispatcher) handleAwaitSignal(ctx context.Context, f wire.Frame) error 
 	timeout := time.Duration(body.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 365 * 24 * time.Hour
+	}
+	if timeout > maxScheduleHorizon {
+		// Same poison-row hazard as handleSleep: TimeoutMs is
+		// workflow-author controlled and lands in schedules.wake_at.
+		d.sup.Log.Warn("supervisor: signal timeout exceeds the max horizon; clamping",
+			"run_id", d.sup.RunID, "step", body.StepName, "requested_ms", body.TimeoutMs)
+		timeout = maxScheduleHorizon
 	}
 	expiresAt := d.sup.Now().Add(timeout)
 	token := DeriveSignalToken(perRunSignalKey(d.sup.SignalSigningKey, d.sup.RunID), d.sup.RunID, body.SignalName)

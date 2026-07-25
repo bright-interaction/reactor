@@ -105,3 +105,85 @@ func TestConcurrentAppendsAreSafe(t *testing.T) {
 		t.Fatalf("got %d lines, want 1000", got)
 	}
 }
+
+// TestAppendRacingCloseDoesNotPanic guards a daemon-killing regression.
+// Append used to snapshot the subscriber set, RELEASE the per-run lock, and
+// only then send. Close closes those same channels under that lock, and a
+// select/default does not make a send on a closed channel safe: it panics.
+// The panic surfaced on the dispatcher's supervisor goroutine, where the HTTP
+// recoverer cannot see it, so an operator with a run tail open (or merely
+// closing the tab) as a run finished took down the daemon and every other
+// in-flight run. The existing concurrency test only raced Append against
+// Append, which never reproduced it.
+func TestAppendRacingCloseDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	for i := 0; i < 300; i++ {
+		b := New(10000, time.Minute)
+		const runID = "run_race"
+
+		// Drain every subscriber so Append keeps taking the real send branch.
+		// A full 64-slot buffer makes the select fall to default, which hides
+		// the bug: the send has to actually execute to panic.
+		stop := make(chan struct{})
+		var drains sync.WaitGroup
+		for s := 0; s < 8; s++ {
+			ch := b.Subscribe(runID)
+			drains.Add(1)
+			go func() {
+				defer drains.Done()
+				for {
+					select {
+					case _, ok := <-ch:
+						if !ok {
+							return
+						}
+					case <-stop:
+						return
+					}
+				}
+			}()
+		}
+
+		var wg sync.WaitGroup
+		for a := 0; a < 8; a++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for k := 0; k < 200; k++ {
+					b.Append(runID, "line")
+				}
+			}()
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.Close(runID)
+		}()
+		wg.Wait()
+		close(stop)
+		drains.Wait()
+	}
+}
+
+// TestAppendAfterCloseIsDropped pins the other half of the same fix: a line
+// accepted after Close showed up in the live SSE snapshot and then vanished
+// on reload (Close flushes to the persist hook exactly once), and after the
+// grace-window delete it resurrected a runState nothing ever reclaims.
+func TestAppendAfterCloseIsDropped(t *testing.T) {
+	t.Parallel()
+	var persisted []string
+	b := New(10, time.Minute)
+	b.OnClose = func(_ string, lines []string) { persisted = append(persisted, lines...) }
+
+	b.Append("run_x", "one")
+	b.Close("run_x")
+	b.Append("run_x", "two-after-close")
+
+	got := b.Snapshot("run_x")
+	if len(got) != 1 || got[0] != "one" {
+		t.Fatalf("snapshot should hold only the pre-close line, got %v", got)
+	}
+	if len(persisted) != 1 || persisted[0] != "one" {
+		t.Fatalf("persisted tail should match the snapshot, got %v", persisted)
+	}
+}

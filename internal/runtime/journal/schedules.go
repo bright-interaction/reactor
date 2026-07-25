@@ -155,7 +155,15 @@ func (j *Journal) FindDueSchedules(ctx context.Context, now time.Time, limit int
 	for rows.Next() {
 		s, err := scanScheduleRow(rows.Scan, j)
 		if err != nil {
-			return nil, err
+			// Skip the row instead of failing the whole batch. A single
+			// unparseable wake_at (an out-of-range timestamp sorts FIRST as
+			// TEXT and always matches "wake_at <= now") would otherwise abort
+			// every scheduler tick, so no suspended run in any tenant would
+			// ever resume. The supervisor clamps new rows to
+			// maxScheduleHorizon; this keeps an already-poisoned table from
+			// wedging the daemon.
+			j.log.Error("journal: skipping unparseable due schedule row", "err", err)
+			continue
 		}
 		out = append(out, s)
 	}
