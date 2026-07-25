@@ -89,6 +89,24 @@ var sensitiveLogKeyParts = []string{
 	"password", "passwd", "secret", "token", "authorization", "bearer",
 	"cookie", "credential", "api_key", "apikey", "access_key", "accesskey",
 	"private_key", "privatekey", "vault_key", "new_value", "jwt", "session_id", "dsn",
+	// Added after the 2026-07-25 audit found a DEMONSTRATED leak, not a
+	// theoretical one: the supervisor forwards every byte of untrusted workflow
+	// stderr at warn level under the key "line", which is above the default
+	// ship floor. Workflow children legitimately hold fetched credentials, so a
+	// single fmt.Fprintln(os.Stderr, secret) or a panic trace embedding a token
+	// egressed verbatim to the operator's shared Flare instance. "panic" ships
+	// the raw panic value; "payload"/"body"/"stdout" carry arbitrary
+	// third-party request content; "webhook" covers the Slack/generic webhook
+	// URL, which IS the bearer secret, and its header value.
+	"line", "stderr", "stdout", "panic", "payload", "body", "webhook",
+	// PII rather than secrets, redacted because this ships to a SHARED store
+	// and the estate is EU-sovereignty positioned. The shipped example workflow
+	// logs customer.Email, which authors copy.
+	"email", "phone",
+	// Deliberately NOT added: "err"/"error". Their values do sometimes embed a
+	// DSN or connection string, but redacting every error message would gut the
+	// logs pillar for the exact case operators need it. The durable answer is
+	// to invert this denylist into an allowlist of shippable keys.
 }
 
 func isSensitiveLogKey(key string) bool {

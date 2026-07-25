@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -309,15 +310,37 @@ func (g *Graph) Stats() map[string]int {
 //   NODE workflow:welcome-customer [status=succeeded ...]
 //   EDGE workflow:foo USES credential:bar
 // Lighter than JSON for inline prompt injection and easier to skim.
+// promptSafe renders an untrusted string as a single-line, quoted Go literal
+// so it cannot break out of the prompt region it is embedded in.
+//
+// Every value this function guards is writable by someone who is not the
+// operator running codegen: node labels come from workflow slugs and CREDENTIAL
+// NAMES, and attr values include dead-letter error_text, which is arbitrary
+// free text chosen by whoever authored the failing workflow. Those strings were
+// interpolated raw into the codegen prompt, whose output is compiled and
+// executed on the host with no human approval step, and node selection is BM25
+// over label+attrs against the brief, so stuffing likely brief terms into a
+// long error_text reliably buys inclusion. A newline plus a fenced-block
+// terminator was enough to append attacker instructions to the prompt.
+//
+// strconv.Quote handles the quote, backslash, backtick and newline cases in one
+// pass; the length cap keeps one hostile node from crowding out the real slice.
+func promptSafe(v string) string {
+	const max = 300
+	if len(v) > max {
+		v = v[:max] + "...(truncated)"
+	}
+	return strconv.Quote(v)
+}
+
 func FormatSubgraph(s Subgraph) string {
 	var b strings.Builder
 	for _, n := range s.Nodes {
 		b.WriteString("NODE ")
 		b.WriteString(n.ID)
 		if n.Label != "" && n.Label != n.ID {
-			b.WriteString(" \"")
-			b.WriteString(n.Label)
-			b.WriteString("\"")
+			b.WriteString(" ")
+			b.WriteString(promptSafe(n.Label))
 		}
 		if len(n.Attrs) > 0 {
 			b.WriteString(" [")
@@ -334,9 +357,9 @@ func FormatSubgraph(s Subgraph) string {
 				b.WriteString("=")
 				switch v := n.Attrs[k].(type) {
 				case string:
-					b.WriteString(v)
+					b.WriteString(promptSafe(v))
 				default:
-					b.WriteString(toString(v))
+					b.WriteString(promptSafe(toString(v)))
 				}
 			}
 			b.WriteString("]")

@@ -69,5 +69,40 @@ func BlockedIP(ip net.IP, allowPrivate bool) bool {
 	if allowPrivate {
 		return false
 	}
+	// net.IP.IsPrivate covers only RFC1918 + IPv6 ULA. These reserved ranges
+	// are just as much "not the public internet", and the CGNAT block is the
+	// one that actually bit this estate: 100.64.0.0/10 is the Tailscale
+	// tailnet, so without it a tenant-supplied webhook URL resolving into the
+	// tailnet reached internal services with allowPrivate=false, which is the
+	// guard's ENFORCING configuration.
+	for _, cidr := range extraBlockedNets {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
 	return ip.IsLoopback() || ip.IsPrivate()
 }
+
+// extraBlockedNets are ranges net.IP.IsPrivate does not classify as private
+// but which must never be an outbound target.
+var extraBlockedNets = func() []*net.IPNet {
+	cidrs := []string{
+		"100.64.0.0/10",   // RFC6598 CGNAT (Tailscale tailnet)
+		"0.0.0.0/8",       // "this host on this network"
+		"192.0.0.0/24",    // IETF protocol assignments
+		"192.0.2.0/24",    // TEST-NET-1
+		"198.18.0.0/15",   // benchmarking
+		"198.51.100.0/24", // TEST-NET-2
+		"203.0.113.0/24",  // TEST-NET-3
+		"240.0.0.0/4",     // reserved
+		"64:ff9b::/96",    // NAT64, maps arbitrary IPv4 incl. loopback
+		"::/128",          // unspecified (belt and braces)
+	}
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, c := range cidrs {
+		if _, n, err := net.ParseCIDR(c); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}()
