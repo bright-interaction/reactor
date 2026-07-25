@@ -732,15 +732,71 @@ func (s *Server) writeValidatedCode(ctx context.Context, slug, dir string, body,
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("mkdir dest: %w", err)
 	}
-	stagePath := dest + ".new"
-	if err := os.WriteFile(stagePath, body, 0o600); err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("write stage: %w", err)
+	// Keep the current source so a failed rebuild can be rolled back rather
+	// than leaving the tree describing code that is not what runs.
+	var prev []byte
+	hadPrev := false
+	if b, rerr := os.ReadFile(dest); rerr == nil {
+		prev, hadPrev = b, true
+	}
+	restore := func() {
+		if hadPrev {
+			_ = os.WriteFile(dest, prev, 0o600)
+		}
+	}
+
+	stagePath, err := stageFile(dir, body)
+	if err != nil {
+		return http.StatusInternalServerError, err
 	}
 	if err := os.Rename(stagePath, dest); err != nil {
+		_ = os.Remove(stagePath)
 		return http.StatusInternalServerError, fmt.Errorf("rename: %w", err)
 	}
+
+	// REBUILD. Validation above compiled the source in a throwaway temp dir,
+	// which proves it builds but changes nothing the runtime executes: the
+	// supervisor execs the already-compiled binary at
+	// <State>/workflows/<slug>/workflow, and no route, watcher or dispatch path
+	// ever recompiled it. So the drawer's "Apply + rebuild" button validated,
+	// wrote, git-committed and returned ok:true while the OLD binary kept
+	// serving every trigger. An admin patching a vulnerable step got a green
+	// save and no fix. RegisterFromDir rebuilds even for an existing slug
+	// (SkipIfExists only skips re-inserting the journal row, not the build).
+	if s.WorkflowRegister == nil {
+		restore()
+		return http.StatusServiceUnavailable, errors.New("this build cannot recompile workflows, so the save would not change what runs; use the reactor CLI on a host with the Go toolchain")
+	}
+	if _, err := s.WorkflowRegister.RegisterFromDir(ctx, slug, dir); err != nil {
+		restore()
+		return http.StatusUnprocessableEntity, fmt.Errorf("rebuild failed, previous source restored:\n%w", err)
+	}
+	// Commit only once the rebuild succeeded, so git records what is actually
+	// running rather than a source revision that never compiled into place.
 	s.commitOptional(ctx, dir, slug, "edit "+slug+" main.go via dashboard")
 	return 0, nil
+}
+
+// stageFile writes body to a unique sibling temp file in dir, returning its
+// path for an atomic rename over the destination. A fixed "<dest>.new" name
+// (as this used to use, with O_TRUNC) let two concurrent saves for one slug
+// interleave: A writes its stage, B truncates and is mid-write, A renames, and
+// B's half-written buffer is published as main.go, bytes no validator ever saw.
+func stageFile(dir string, body []byte) (string, error) {
+	f, err := os.CreateTemp(dir, "main.go.stage-")
+	if err != nil {
+		return "", fmt.Errorf("write stage: %w", err)
+	}
+	defer f.Close()
+	if err := f.Chmod(0o600); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("stage chmod: %w", err)
+	}
+	if _, err := f.Write(body); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("write stage: %w", err)
+	}
+	return f.Name(), nil
 }
 
 // workflowSaveDAG replaces dag.json after schema validation.

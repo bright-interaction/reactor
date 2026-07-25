@@ -113,7 +113,7 @@ func TestNodeCodeSaveSplicesAndWrites(t *testing.T) {
 	seedWorkflow(t, root, "demo", nodeEditSrc)
 	val := &stubValidator{}
 	com := &stubCommitter{}
-	srv := &Server{WorkflowsRoot: root, CodeValidator: val, CodeCommitter: com}
+	srv := &Server{WorkflowsRoot: root, CodeValidator: val, CodeCommitter: com, WorkflowRegister: &stubRegistrar{}}
 	ts := httptest.NewServer(nodeRouter(srv))
 	defer ts.Close()
 
