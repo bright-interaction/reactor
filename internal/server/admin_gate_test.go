@@ -1,12 +1,69 @@
 package server
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/bright-interaction/reactor/internal/auth"
+	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/graph"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
+
+// TestGraphJSONIsAdminGated pins an estate-wide read leak. /graph.json
+// serialises every tenant's workflow slugs, the full workflow->credential
+// grant matrix, credential names/services/rotation errors and dead-letter
+// error text, and its handler discards *http.Request entirely, so viewerScope
+// cannot be consulted even in principle. It was mounted on the MEMBER router
+// while the identical MCP query_graph tool already sat behind requireAdminMW.
+//
+// The underlying hazard is that authorization in Mount is POSITIONAL: a route
+// is admin-gated only because its mount call happens to sit inside the
+// r.Group block, so moving one line silently exposes it with no test failing.
+// Asserting on middleware depth catches that, where reading the source does not.
+func TestGraphJSONIsAdminGated(t *testing.T) {
+	t.Parallel()
+	s := &Server{
+		Journal:     &journal.Journal{},
+		Credentials: &credentials.Repo{},
+		Graph:       &graph.Graph{},
+		Log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	r := chi.NewRouter()
+	s.Mount(r)
+
+	depth := map[string]int{}
+	if err := chi.Walk(r, func(method, route string, _ http.Handler, mws ...func(http.Handler) http.Handler) error {
+		depth[method+" "+route] = len(mws)
+		return nil
+	}); err != nil {
+		t.Fatalf("walk routes: %v", err)
+	}
+
+	graphDepth, ok := depth["GET /graph.json"]
+	if !ok {
+		t.Fatal("/graph.json is not registered; wire s.Graph in this test")
+	}
+	adminDepth, ok := depth["GET /audit"]
+	if !ok {
+		t.Fatal("/audit is not registered; it is the admin-gated reference route")
+	}
+	memberDepth, ok := depth["GET /runs"]
+	if !ok {
+		t.Fatal("/runs is not registered; it is the member reference route")
+	}
+	if graphDepth != adminDepth {
+		t.Fatalf("/graph.json middleware depth = %d, want %d (same as admin-gated /audit)", graphDepth, adminDepth)
+	}
+	if graphDepth <= memberDepth {
+		t.Fatalf("/graph.json depth %d must exceed member-route depth %d", graphDepth, memberDepth)
+	}
+}
 
 // TestRequireAdminMW is the regression test for the RBAC ship-blocker
 // where privileged mutations (workflow code, credentials, triggers) were

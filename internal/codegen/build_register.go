@@ -92,6 +92,23 @@ func BuildAndRegister(ctx context.Context, j JournalForBuildRegister, req BuildA
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		return BuildAndRegisterResult{}, fmt.Errorf("build_and_register: mkdir %s: %w", binDir, err)
 	}
+	// The daemon owns module setup, on EVERY path into a compile. This used to
+	// run only in BuildAndRegisterSource, so the tarball-upload path built with
+	// the caller's own go.mod verbatim: a `replace github.com/bright-interaction/reactor
+	// => ./vendor/fake` plus attacker code under ./vendor substituted for the
+	// SDK and executed at build time as the daemon uid, and the import
+	// allowlist never saw it because the walker skips vendor trees. Reject the
+	// two escape hatches regenerating go.mod cannot neutralise (a vendor tree,
+	// which Go auto-activates from vendor/modules.txt, and a go.work that
+	// overrides the module graph outright), then regenerate the module.
+	for _, banned := range []string{"vendor", "go.work", "go.work.sum"} {
+		if _, err := os.Stat(filepath.Join(req.SrcDir, banned)); err == nil {
+			return BuildAndRegisterResult{}, fmt.Errorf("build_and_register: %q is not allowed in a workflow source tree (the daemon owns module setup)", banned)
+		}
+	}
+	if err := initModule(ctx, "go", req.SrcDir, req.Slug); err != nil {
+		return BuildAndRegisterResult{}, fmt.Errorf("build_and_register: init module: %w", err)
+	}
 	// Static import allowlist BEFORE compiling: a hostile brief or saved
 	// edit must not pull a third-party module that could run code at build
 	// time. Workflows are sandboxed at runtime, but `go build` is not.
@@ -215,11 +232,8 @@ func BuildAndRegisterSource(ctx context.Context, j JournalForBuildRegister, req 
 	if err := os.WriteFile(filepath.Join(tmp, "dag.json"), []byte(dag), 0o600); err != nil {
 		return BuildAndRegisterResult{}, fmt.Errorf("build_source: write dag.json: %w", err)
 	}
-	// Wire a workflow-local module + SDK replace (same as the codegen
-	// validator) so the unpublished SDK import resolves at build time.
-	if err := initModule(ctx, "go", tmp, req.Slug); err != nil {
-		return BuildAndRegisterResult{}, fmt.Errorf("build_source: init module: %w", err)
-	}
+	// Module setup (and the vendor/go.work rejection) now lives in
+	// BuildAndRegister so every compile path gets it, not just this one.
 	return BuildAndRegister(ctx, j, BuildAndRegisterRequest{
 		Slug:         req.Slug,
 		SrcDir:       tmp,

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -180,5 +181,68 @@ func TestBuildAndRegisterSourceRejectsBadSlug(t *testing.T) {
 		Slug: "Bad Slug", MainGo: "package main\nfunc main(){}\n", StateRoot: t.TempDir(),
 	}); err == nil {
 		t.Fatal("invalid slug should be rejected")
+	}
+}
+
+// TestBuildAndRegisterRejectsVendorAndGoWork closes the other half of the
+// supplied-module-graph hole. Regenerating go.mod is not enough on its own:
+// Go auto-activates vendor mode from vendor/modules.txt, and a go.work
+// overrides the module graph outright, so either one puts attacker code back
+// into the build. The import-allowlist walker also deliberately skips vendor
+// trees, so nothing would have scanned them.
+func TestBuildAndRegisterRejectsVendorAndGoWork(t *testing.T) {
+	t.Parallel()
+	for _, banned := range []string{"vendor", "go.work", "go.work.sum"} {
+		banned := banned
+		t.Run(banned, func(t *testing.T) {
+			t.Parallel()
+			src := writeMiniWorkflow(t, false)
+			path := filepath.Join(src, banned)
+			if banned == "vendor" {
+				if err := os.MkdirAll(path, 0o755); err != nil {
+					t.Fatalf("mkdir vendor: %v", err)
+				}
+			} else if err := os.WriteFile(path, []byte("go 1.25\n"), 0o644); err != nil {
+				t.Fatalf("write %s: %v", banned, err)
+			}
+			_, err := BuildAndRegister(context.Background(), &fakeJournal{}, BuildAndRegisterRequest{
+				Slug: "demo", SrcDir: src, StateRoot: t.TempDir(),
+			})
+			if err == nil {
+				t.Fatalf("%s in the source tree should be rejected", banned)
+			}
+			if !strings.Contains(err.Error(), banned) {
+				t.Fatalf("error should name %q, got %v", banned, err)
+			}
+		})
+	}
+}
+
+// TestBuildAndRegisterRegeneratesSuppliedGoMod pins the fix for the host-RCE
+// path: the tarball-upload route used the caller's go.mod verbatim, so a
+// `replace github.com/bright-interaction/reactor => ./evil` substituted
+// attacker code for the SDK and ran it at build time as the daemon uid.
+// initModule now runs on EVERY compile path, not just the MCP one.
+func TestBuildAndRegisterRegeneratesSuppliedGoMod(t *testing.T) {
+	t.Parallel()
+	src := writeMiniWorkflow(t, false)
+	hostile := "module tinywf\n\ngo 1.22\n\nreplace github.com/bright-interaction/reactor => ./evil\n"
+	if err := os.WriteFile(filepath.Join(src, "go.mod"), []byte(hostile), 0o644); err != nil {
+		t.Fatalf("write hostile go.mod: %v", err)
+	}
+	if _, err := BuildAndRegister(context.Background(), &fakeJournal{}, BuildAndRegisterRequest{
+		Slug: "hostile", SrcDir: src, StateRoot: t.TempDir(),
+	}); err != nil {
+		t.Fatalf("BuildAndRegister: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(src, "go.mod"))
+	if err != nil {
+		t.Fatalf("read go.mod: %v", err)
+	}
+	if strings.Contains(string(got), "replace") {
+		t.Fatalf("supplied replace directive survived:\n%s", got)
+	}
+	if !strings.Contains(string(got), "module reactor-workflow/hostile") {
+		t.Fatalf("go.mod should be daemon-owned, got:\n%s", got)
 	}
 }
