@@ -41,6 +41,17 @@ func newACLEnv(t *testing.T) (*journal.Journal, *vault.Store) {
 	if err := j.CreateWorkflow(context.Background(), "wf_acl", "acl-test", "h", "0.1.0", json.RawMessage(`{}`)); err != nil {
 		t.Fatalf("create wf: %v", err)
 	}
+	// The vault here is in-memory, so nothing else creates the credentials
+	// rows. GrantSecret/RevokeSecret now require both sides of a grant to
+	// exist (a grant naming a resource that is not there was how phantom
+	// grants got in via MCP and the CLI), so seed them explicitly.
+	for _, id := range []string{"cred_secret", "cred_other"} {
+		if _, err := db.ExecContext(context.Background(),
+			`INSERT INTO credentials (id, tenant_id, name, service, blob) VALUES (?,?,?,?,?)`,
+			id, "default", "name-"+id, "svc", []byte("x")); err != nil {
+			t.Fatalf("seed credential %s: %v", id, err)
+		}
+	}
 
 	masterKey := make([]byte, 32)
 	for i := range masterKey {

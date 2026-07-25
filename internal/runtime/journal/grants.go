@@ -18,6 +18,11 @@ type Grant struct {
 	Note         string    `json:"note,omitempty"`
 }
 
+// ErrGrantTarget is returned when a grant or revoke names a workflow or
+// credential that does not exist. Callers map this to HTTP 404 / a clear
+// "unknown id" message rather than silently writing a phantom grant row.
+var ErrGrantTarget = errors.New("journal: grant target does not exist")
+
 // GrantSecret records that a workflow may read a credential. Idempotent
 // via INSERT OR REPLACE / ON CONFLICT semantics so repeated grants
 // (e.g. CI re-applying a config) don't error.
@@ -26,16 +31,22 @@ func (j *Journal) GrantSecret(ctx context.Context, workflowID, credentialID, gra
 		return errors.New("journal: grant: workflow_id and credential_id required")
 	}
 	// Cross-tenant refusal: a grant must never link a workflow to a credential
-	// owned by a different tenant (that is the cross-tenant secret-disclosure
-	// path, since HasGrant only checks the (workflow, credential) pair). Look
-	// both up and refuse when both rows exist with differing tenants. When
-	// either row is absent there is nothing to cross, so we don't force
-	// existence here (the calling surface reports unknown ids).
-	var wfTenant, credTenant sql.NullString
-	_ = j.db.QueryRowContext(ctx, j.bind(`SELECT tenant_id FROM workflows WHERE id = $1`), workflowID).Scan(&wfTenant)
-	_ = j.db.QueryRowContext(ctx, j.bind(`SELECT tenant_id FROM credentials WHERE id = $1 AND deleted_at IS NULL`), credentialID).Scan(&credTenant)
-	if wfTenant.Valid && credTenant.Valid && wfTenant.String != credTenant.String {
-		return fmt.Errorf("journal: grant refused: workflow tenant %q != credential tenant %q (cross-tenant grants are not allowed)", wfTenant.String, credTenant.String)
+	// owned by a different tenant, since HasGrant only checks the
+	// (workflow, credential) pair and the grant table carries no tenant column.
+	//
+	// This used to skip the check whenever EITHER row was absent, on the stated
+	// assumption that "the calling surface reports unknown ids". No surface
+	// does: the MCP grant_secret tool passes both ids straight through, so
+	// granting to a workflow id that does not exist returned ok:true and left a
+	// phantom row (verified against a live stdio server), and `reactor vault
+	// grant` accepted a nonexistent credential the same way. Requiring both
+	// rows to resolve is what makes the tenant comparison meaningful.
+	wfTenant, credTenant, err := j.grantTenants(ctx, workflowID, credentialID)
+	if err != nil {
+		return err
+	}
+	if wfTenant != credTenant {
+		return fmt.Errorf("journal: grant refused: workflow tenant %q != credential tenant %q (cross-tenant grants are not allowed)", wfTenant, credTenant)
 	}
 	q := `INSERT INTO workflow_secret_grants (workflow_id, credential_id, granted_by, note)
 		VALUES ($1, $2, $3, $4)
@@ -49,16 +60,51 @@ func (j *Journal) GrantSecret(ctx context.Context, workflowID, credentialID, gra
 				granted_by = excluded.granted_by,
 				note       = excluded.note`
 	}
-	_, err := j.db.ExecContext(ctx, j.bind(q),
-		workflowID, credentialID, nullable(grantedBy), nullable(note))
-	if err != nil {
+	if _, err := j.db.ExecContext(ctx, j.bind(q),
+		workflowID, credentialID, nullable(grantedBy), nullable(note)); err != nil {
 		return fmt.Errorf("journal: grant secret: %w", err)
 	}
 	return nil
 }
 
+// grantTenants resolves the owning tenant of both sides of a grant. Both rows
+// must exist: a grant naming a resource that is not there is always a caller
+// bug, and silently accepting it is what let phantom grants through.
+func (j *Journal) grantTenants(ctx context.Context, workflowID, credentialID string) (string, string, error) {
+	var wfTenant, credTenant sql.NullString
+	err := j.db.QueryRowContext(ctx,
+		j.bind(`SELECT tenant_id FROM workflows WHERE id = $1`), workflowID).Scan(&wfTenant)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", fmt.Errorf("%w: workflow %q", ErrGrantTarget, workflowID)
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("journal: grant: lookup workflow tenant: %w", err)
+	}
+	err = j.db.QueryRowContext(ctx,
+		j.bind(`SELECT tenant_id FROM credentials WHERE id = $1 AND deleted_at IS NULL`), credentialID).Scan(&credTenant)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", fmt.Errorf("%w: credential %q", ErrGrantTarget, credentialID)
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("journal: grant: lookup credential tenant: %w", err)
+	}
+	return wfTenant.String, credTenant.String, nil
+}
+
 // RevokeSecret removes a grant. Returns ErrNotFound if no row matched.
 func (j *Journal) RevokeSecret(ctx context.Context, workflowID, credentialID string) error {
+	// Mirror GrantSecret's cross-tenant refusal. The 2026-07-07 fix pass added
+	// it to grant and not to its inverse, so revoke was reachable across the
+	// tenant boundary on all three surfaces (REST, MCP, CLI) and is a
+	// cross-tenant denial of service: drop another tenant's grant and their
+	// workflows start failing every secret fetch.
+	wfTenant, credTenant, err := j.grantTenants(ctx, workflowID, credentialID)
+	if err != nil {
+		return err
+	}
+	if wfTenant != credTenant {
+		return fmt.Errorf("journal: revoke refused: workflow tenant %q != credential tenant %q", wfTenant, credTenant)
+	}
 	const q = `DELETE FROM workflow_secret_grants
 		WHERE workflow_id = $1 AND credential_id = $2`
 	res, err := j.db.ExecContext(ctx, j.bind(q), workflowID, credentialID)
