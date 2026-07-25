@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	sentry "github.com/getsentry/sentry-go"
@@ -27,6 +28,10 @@ func InitFlare(service, release string) bool {
 		ServerName:       service,
 		EnableTracing:    true,
 		TracesSampleRate: tracesSampleRate(),
+		BeforeSend:       scrubEvent,
+		BeforeSendTransaction: func(e *sentry.Event, _ *sentry.EventHint) *sentry.Event {
+			return scrubEvent(e, nil)
+		},
 	})
 	if err != nil {
 		slog.Warn("flare: error reporting disabled (sentry init failed)", "error", err)
@@ -36,6 +41,44 @@ func InitFlare(service, release string) bool {
 	startHeartbeat(service)
 	installLogShipper(service)
 	return true
+}
+
+// scrubEvent strips request and environment detail sentry-go attaches
+// unconditionally, i.e. OUTSIDE its own SendDefaultPII guard. Without this the
+// panic path exfiltrated live secrets:
+//
+//   - QueryString is set unconditionally (sentry-go interfaces.go), so any
+//     panic during GET /oauth/callback?code=...&state=... shipped the live
+//     OAuth authorization code to the Flare backend and into its issue UI.
+//     Same exposure on /login?next=, /tenants?err=, /connections?err=.
+//   - Referer is not on sentry's header denylist and routinely carries the full
+//     previous URL, including any token in its query string.
+//   - Modules attaches the full Go dependency graph with exact versions to
+//     EVERY event, including the 2-minute liveness heartbeat, which is a
+//     continuous version-inventory beacon rather than error reporting.
+//
+// A comment elsewhere in this package used to claim BeforeSend already scrubbed
+// the event path. It did not exist; this is that function.
+func scrubEvent(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
+	if event == nil {
+		return nil
+	}
+	event.Modules = nil
+	if event.Request != nil {
+		event.Request.QueryString = ""
+		event.Request.Data = ""
+		event.Request.Cookies = ""
+		if event.Request.Headers != nil {
+			delete(event.Request.Headers, "Referer")
+			delete(event.Request.Headers, "Referrer")
+		}
+		// The URL itself can carry a token in the path on a future route; keep
+		// only scheme+host+path, never a fragment or query.
+		if i := strings.IndexAny(event.Request.URL, "?#"); i >= 0 {
+			event.Request.URL = event.Request.URL[:i]
+		}
+	}
+	return event
 }
 
 // FlareRecoverer captures panics to Flare and renders a plain 500.
