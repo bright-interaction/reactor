@@ -207,3 +207,41 @@ func TestSetRunStatus(t *testing.T) {
 		t.Fatal("want error for missing run")
 	}
 }
+
+// TestFindDueSchedulesSkipsUnparseableWakeAt guards an estate-wide wedge.
+// wake_at is TEXT, so an out-of-range timestamp (a workflow-controlled
+// Sleep.UntilUnix overflow reaches it) sorts BEFORE every real timestamp AND
+// still satisfies "wake_at <= now". It was therefore scanned first on every
+// tick, failed to parse, and aborted the whole batch, so no suspended run in
+// any tenant ever resumed again. The row persists, so this did not self-heal
+// on restart. The supervisor now clamps new rows to maxScheduleHorizon; this
+// keeps an already-poisoned table from wedging the daemon.
+func TestFindDueSchedulesSkipsUnparseableWakeAt(t *testing.T) {
+	t.Parallel()
+	j, cleanup := newTestJournal(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := j.ScheduleSleep(ctx, "run_1", "good", time.Now().Add(-time.Minute)); err != nil {
+		t.Fatalf("schedule sleep: %v", err)
+	}
+	const q = `INSERT INTO schedules (id, run_id, step_name, kind, wake_at, fired)
+		VALUES ($1, $2, $3, 'sleep', $4, $5)`
+	if _, err := j.db.ExecContext(ctx, j.bind(q),
+		"sched_poison", "run_1", "poison", "146138514283-06-19T07:45:04.000Z", j.boolValue(false),
+	); err != nil {
+		t.Fatalf("insert poison row: %v", err)
+	}
+
+	due, err := j.FindDueSchedules(ctx, time.Now(), 10)
+	if err != nil {
+		t.Fatalf("FindDueSchedules must not fail on a poisoned row: %v", err)
+	}
+	if len(due) != 1 || due[0].StepName != "good" {
+		names := make([]string, 0, len(due))
+		for _, s := range due {
+			names = append(names, s.StepName)
+		}
+		t.Fatalf("want only the good schedule, got %v", names)
+	}
+}

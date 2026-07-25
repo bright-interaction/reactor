@@ -66,6 +66,15 @@ func (b *Buffer) Append(runID, line string) {
 	b.mu.Unlock()
 
 	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if rs.closed {
+		// The run already terminated and Close() flushed its tail to the
+		// persist hook exactly once. Accepting more lines here would show
+		// them in the live SSE snapshot and then lose them on reload, and
+		// after the grace-window delete it would resurrect a runState that
+		// nothing ever reclaims.
+		return
+	}
 	if len(rs.lines) >= b.cap {
 		// Drop oldest line to keep the ring at cap. Slice copy is the
 		// simplest correct shape; performance is fine for an SSE tail.
@@ -73,15 +82,15 @@ func (b *Buffer) Append(runID, line string) {
 	} else {
 		rs.lines = append(rs.lines, line)
 	}
-	subs := make([]chan string, 0, len(rs.subscribers))
+	// Fan out while STILL HOLDING rs.mu. Close() closes these channels under
+	// the same lock, and a select/default does NOT make a send on a closed
+	// channel safe: it panics. Dropping the lock first (as this used to) let
+	// an in-flight Append race a terminating run and panic on the
+	// dispatcher's supervisor goroutine, where FlareRecoverer cannot see it,
+	// killing the daemon and every other in-flight run with it. Holding the
+	// lock cannot deadlock or backpressure because every send below is
+	// non-blocking and the channels are buffered.
 	for s := range rs.subscribers {
-		subs = append(subs, s)
-	}
-	rs.mu.Unlock()
-	// Fan out without holding the per-run lock so a slow subscriber
-	// can't backpressure Append. Each subscriber channel is buffered;
-	// drop on full so a stalled SSE doesn't pin the dispatcher.
-	for _, s := range subs {
 		select {
 		case s <- line:
 		default:
