@@ -313,7 +313,6 @@ func (s *Server) Mount(r chi.Router) {
 	s.mountManualDispatchRoute(r)
 	s.mountRunCancelRoute(r)
 	s.mountKnowledgeRoutes(r)
-	s.mountGraphRoute(r)
 	s.mountWebhookRoutes(r)
 	s.mountAuthRoutes(r)
 	s.mountTenantsRoutes(r)
@@ -336,6 +335,14 @@ func (s *Server) Mount(r chi.Router) {
 		// like every other write surface so a member token cannot reach the
 		// cross-tenant read tools or any future write tool wired over HTTP.
 		s.mountMCPRoute(ar)
+		// /graph.json serialises the WHOLE estate graph: every tenant's
+		// workflow slugs, the full workflow->credential grant matrix,
+		// credential names/services/rotation errors, and dead-letter error
+		// text. Its handler discards *http.Request, so viewerScope can't even
+		// be consulted. It was mounted on the member router, which contradicted
+		// the admin gate already applied to the identical MCP query_graph tool
+		// two lines up. Same data, same gate.
+		s.mountGraphRoute(ar)
 		s.mountVaultRoutes(ar)
 		s.mountCredentialOpRoutes(ar)
 		s.mountWorkflowEditRoutes(ar)
