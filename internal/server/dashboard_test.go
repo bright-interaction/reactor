@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,6 +27,25 @@ type stubValidator struct {
 func (s *stubValidator) Validate(_ context.Context, _, _, _, _ string) error {
 	s.calls++
 	return s.fail
+}
+
+// stubRegistrar satisfies WorkflowRegistrar and records rebuilds. Validation
+// compiles in a throwaway temp dir, so a save that does not ALSO rebuild leaves
+// the old binary serving every trigger; these counters are what pin that.
+type stubRegistrar struct {
+	calls int
+	slug  string
+	dir   string
+	fail  error
+}
+
+func (s *stubRegistrar) RegisterFromDir(_ context.Context, slug, dir string) (string, error) {
+	s.calls++
+	s.slug, s.dir = slug, dir
+	if s.fail != nil {
+		return "", s.fail
+	}
+	return "wf_stub", nil
 }
 
 type stubCommitter struct{ calls int }
@@ -72,10 +93,12 @@ func TestSaveCodeWritesAndCommitsOnSuccess(t *testing.T) {
 	root := t.TempDir()
 	val := &stubValidator{}
 	com := &stubCommitter{}
+	reg := &stubRegistrar{}
 	srv := &Server{
-		WorkflowsRoot: root,
-		CodeValidator: val,
-		CodeCommitter: com,
+		WorkflowsRoot:    root,
+		CodeValidator:    val,
+		CodeCommitter:    com,
+		WorkflowRegister: reg,
 	}
 	r := chi.NewRouter()
 	r.Post("/workflows/{slug}/code", srv.workflowSaveCode)
@@ -101,6 +124,92 @@ func TestSaveCodeWritesAndCommitsOnSuccess(t *testing.T) {
 	}
 	if com.calls != 1 {
 		t.Fatalf("committer called %d times, want 1", com.calls)
+	}
+	if reg.calls != 1 {
+		t.Fatalf("registrar called %d times, want 1: a save that does not rebuild leaves the old binary running", reg.calls)
+	}
+	if reg.slug != "demo" || reg.dir != filepath.Join(root, "demo") {
+		t.Fatalf("rebuild targeted slug=%q dir=%q, want demo / %s", reg.slug, reg.dir, filepath.Join(root, "demo"))
+	}
+}
+
+// TestSaveCodeRefusesWhenItCannotRebuild pins the trust property: a save that
+// cannot recompile must not report success, because the drawer button says
+// "Apply + rebuild" and the runtime execs the already-built binary.
+func TestSaveCodeRefusesWhenItCannotRebuild(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	srv := &Server{
+		WorkflowsRoot: root,
+		CodeValidator: &stubValidator{},
+		CodeCommitter: &stubCommitter{},
+		Log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		// WorkflowRegister deliberately nil.
+	}
+	r := chi.NewRouter()
+	r.Post("/workflows/{slug}/code", srv.workflowSaveCode)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	resp, err := ts.Client().PostForm(ts.URL+"/workflows/demo/code", url.Values{"body": {"package main\nfunc main(){}\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusSeeOther || resp.StatusCode == http.StatusOK {
+		t.Fatalf("status = %d: a save that cannot rebuild must not report success", resp.StatusCode)
+	}
+}
+
+// TestSaveCodeRestoresSourceWhenRebuildFails keeps the on-disk source in step
+// with the binary that is actually running.
+func TestSaveCodeRestoresSourceWhenRebuildFails(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "demo")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := "package main\n\n// ORIGINAL\nfunc main() {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{
+		WorkflowsRoot:    root,
+		CodeValidator:    &stubValidator{},
+		CodeCommitter:    &stubCommitter{},
+		WorkflowRegister: &stubRegistrar{fail: errors.New("go build: boom")},
+		Log:              slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	r := chi.NewRouter()
+	r.Post("/workflows/{slug}/code", srv.workflowSaveCode)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	resp, err := ts.Client().PostForm(ts.URL+"/workflows/demo/code", url.Values{"body": {"package main\n\n// REPLACEMENT\nfunc main() {}\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusSeeOther {
+		t.Fatalf("status = %d, want a failure when the rebuild fails", resp.StatusCode)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Fatalf("source should be rolled back to the version that matches the running binary, got:\n%s", got)
+	}
+	// The staging file must not be left behind.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "stage") || strings.HasSuffix(e.Name(), ".new") {
+			t.Fatalf("staging file %q left behind", e.Name())
+		}
 	}
 }
 
