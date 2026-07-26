@@ -431,7 +431,11 @@ func (d *dispatcher) handleSleep(ctx context.Context, f wire.Frame) error {
 	// the workflow body advances across the suspend/respawn boundary, so
 	// the second-spawn UntilUnix is always now+d which would re-suspend
 	// forever. The journal row is the source of truth for wake_at.
-	existing, err := d.sup.Journal.FindLatestSleepSchedule(ctx, d.sup.RunID, body.StepName)
+	// Resolve by call ordinal when the workflow binary supplies one, so a Sleep
+	// inside a loop looks up ITS iteration rather than the first iteration's
+	// row (whose wake_at is already past, which made every later iteration ack
+	// instantly and collapsed a per-item delay into a single sleep).
+	existing, err := d.findSleepSchedule(ctx, body)
 	switch {
 	case err == nil:
 		if !existing.WakeAt.After(d.sup.Now()) {
@@ -441,7 +445,7 @@ func (d *dispatcher) handleSleep(ctx context.Context, f wire.Frame) error {
 		// Schedule exists but wake_at is still in the future (rare: a
 		// replay happened before wake). Re-suspend on the existing
 		// wake_at so the scheduler tick handles the rest.
-		return d.suspendForSleep(ctx, body.StepName, existing.WakeAt, false)
+		return d.suspendForSleep(ctx, body.StepName, body.Seq, existing.WakeAt, false)
 	case errors.Is(err, journal.ErrNotFound):
 		// Fresh path; fall through.
 	default:
@@ -480,16 +484,33 @@ func (d *dispatcher) handleSleep(ctx context.Context, f wire.Frame) error {
 
 	// Long sleep: write a schedules row pinned to the first-call until,
 	// then suspend. Subsequent respawns enter the resume branch above.
-	return d.suspendForSleep(ctx, body.StepName, until, true)
+	return d.suspendForSleep(ctx, body.StepName, body.Seq, until, true)
 }
 
 // suspendForSleep is the shared tail of the fresh + resume long-sleep
 // paths. It writes (or relies on an existing) schedules row, marks the
 // run suspended, sends Cancel so the workflow process exits cleanly,
 // and returns errSuspended so the dispatcher loop unwinds.
-func (d *dispatcher) suspendForSleep(ctx context.Context, stepName string, wakeAt time.Time, writeRow bool) error {
+// findSleepSchedule prefers the call-ordinal lookup and falls back to the legacy
+// name-keyed one for workflow binaries built before the ordinal existed.
+func (d *dispatcher) findSleepSchedule(ctx context.Context, body wire.Sleep) (journal.Schedule, error) {
+	if body.Seq > 0 {
+		return d.sup.Journal.FindScheduleBySeq(ctx, d.sup.RunID, body.Seq, journal.KindSleep)
+	}
+	return d.sup.Journal.FindLatestSleepSchedule(ctx, d.sup.RunID, body.StepName)
+}
+
+// findSignalSchedule mirrors findSleepSchedule for awaits.
+func (d *dispatcher) findSignalSchedule(ctx context.Context, body wire.AwaitSignal) (journal.Schedule, error) {
+	if body.Seq > 0 {
+		return d.sup.Journal.FindScheduleBySeq(ctx, d.sup.RunID, body.Seq, journal.KindSignal)
+	}
+	return d.sup.Journal.FindLatestSignalSchedule(ctx, d.sup.RunID, body.StepName)
+}
+
+func (d *dispatcher) suspendForSleep(ctx context.Context, stepName string, seq int64, wakeAt time.Time, writeRow bool) error {
 	if writeRow {
-		if _, err := d.sup.Journal.ScheduleSleep(ctx, d.sup.RunID, stepName, wakeAt); err != nil {
+		if _, err := d.sup.Journal.ScheduleSleepSeq(ctx, d.sup.RunID, stepName, seq, wakeAt); err != nil {
 			return fmt.Errorf("supervisor: schedule sleep: %w", err)
 		}
 	}
@@ -530,7 +551,11 @@ func (d *dispatcher) handleAwaitSignal(ctx context.Context, f wire.Frame) error 
 		return err
 	}
 
-	existing, err := d.sup.Journal.FindLatestSignalSchedule(ctx, d.sup.RunID, body.StepName)
+	// Resolve by call ordinal when available. Two AwaitSignal calls sharing a
+	// signal name previously collapsed onto one row, so the second was served
+	// the first's already-delivered payload and never suspended: an
+	// approve-then-confirm gate auto-confirmed itself from one approval.
+	existing, err := d.findSignalSchedule(ctx, body)
 	switch {
 	case err == nil:
 		// Resume path. Decide based on payload presence and wake_at.
@@ -573,7 +598,7 @@ func (d *dispatcher) handleAwaitSignal(ctx context.Context, f wire.Frame) error 
 	}
 	expiresAt := d.sup.Now().Add(timeout)
 	token := DeriveSignalToken(perRunSignalKey(d.sup.SignalSigningKey, d.sup.RunID), d.sup.RunID, body.SignalName)
-	if _, err := d.sup.Journal.ScheduleSignal(ctx, d.sup.RunID, body.StepName, body.SignalName, token, expiresAt); err != nil {
+	if _, err := d.sup.Journal.ScheduleSignalSeq(ctx, d.sup.RunID, body.StepName, body.Seq, body.SignalName, token, expiresAt); err != nil {
 		return fmt.Errorf("supervisor: schedule signal: %w", err)
 	}
 	// Log only the token fingerprint (first 8 chars). The full token is a

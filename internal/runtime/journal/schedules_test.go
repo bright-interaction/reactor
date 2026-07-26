@@ -208,6 +208,108 @@ func TestSetRunStatus(t *testing.T) {
 	}
 }
 
+// TestScheduleSeqSeparatesRepeatedAwaits pins the fix for a gate that
+// auto-confirmed itself. Two AwaitSignal calls sharing a signal name used to
+// de-duplicate on (run_id, step_name, kind) and collapse onto ONE row, so the
+// second await was served the first's already-delivered payload and never
+// suspended: one approval click satisfied an approve-then-confirm sequence.
+func TestScheduleSeqSeparatesRepeatedAwaits(t *testing.T) {
+	t.Parallel()
+	j, cleanup := newTestJournal(t)
+	defer cleanup()
+	ctx := context.Background()
+	exp := time.Now().Add(time.Hour)
+
+	// Both awaits share the signal name, so they share the name-derived token.
+	const tok = "sig_shared"
+	if _, err := j.ScheduleSignalSeq(ctx, "run_1", "approval", 1, "approval", tok, exp); err != nil {
+		t.Fatalf("first await: %v", err)
+	}
+	if _, err := j.ScheduleSignalSeq(ctx, "run_1", "approval", 2, "approval", tok, exp); err != nil {
+		t.Fatalf("second await must get its own row (widened unique index): %v", err)
+	}
+
+	first, err := j.FindScheduleBySeq(ctx, "run_1", 1, KindSignal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := j.FindScheduleBySeq(ctx, "run_1", 2, KindSignal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID {
+		t.Fatal("the two awaits resolved to the same row; the ordinal is what keeps them apart")
+	}
+
+	// A delivery fills the OLDEST pending await, not an arbitrary one.
+	if _, _, err := j.FireSignal(ctx, tok, []byte(`"yes"`)); err != nil {
+		t.Fatalf("first delivery: %v", err)
+	}
+	got1, err := j.FindScheduleBySeq(ctx, "run_1", 1, KindSignal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got1.SignalPayload) == 0 {
+		t.Fatal("first await should have received the delivery")
+	}
+	got2, err := j.FindScheduleBySeq(ctx, "run_1", 2, KindSignal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got2.SignalPayload) != 0 {
+		t.Fatal("second await must still be pending after ONE delivery, or the gate auto-confirms")
+	}
+
+	// A second delivery to the same token fills the second await rather than
+	// reporting ErrAlreadyFired forever and stranding it.
+	if _, _, err := j.FireSignal(ctx, tok, []byte(`"confirmed"`)); err != nil {
+		t.Fatalf("second delivery should reach the pending await: %v", err)
+	}
+	got2, err = j.FindScheduleBySeq(ctx, "run_1", 2, KindSignal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got2.SignalPayload) != `"confirmed"` {
+		t.Fatalf("second await payload = %s, want \"confirmed\"", got2.SignalPayload)
+	}
+	// Now everything is delivered, so a third delivery is genuinely a replay.
+	if _, _, err := j.FireSignal(ctx, tok, []byte(`"extra"`)); !errors.Is(err, ErrAlreadyFired) {
+		t.Fatalf("third delivery = %v, want ErrAlreadyFired", err)
+	}
+}
+
+// TestScheduleSeqSeparatesLoopSleeps is the Sleep half: a Sleep inside a loop
+// matched the first iteration's row on every later iteration, and that row's
+// wake_at was already past, so the host acked instantly and a per-item delay
+// collapsed into a single sleep.
+func TestScheduleSeqSeparatesLoopSleeps(t *testing.T) {
+	t.Parallel()
+	j, cleanup := newTestJournal(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	past := time.Now().Add(-time.Hour)
+	future := time.Now().Add(time.Hour)
+	if _, err := j.ScheduleSleepSeq(ctx, "run_1", "throttle", 1, past); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.ScheduleSleepSeq(ctx, "run_1", "throttle", 2, future); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := j.FindScheduleBySeq(ctx, "run_1", 2, KindSleep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.WakeAt.After(time.Now()) {
+		t.Fatal("iteration 2 resolved to iteration 1's already-past wake_at, so it would ack instantly")
+	}
+	// seq 0 is the pre-ordinal marker and must not resolve.
+	if _, err := j.FindScheduleBySeq(ctx, "run_1", 0, KindSleep); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("seq 0 = %v, want ErrNotFound", err)
+	}
+}
+
 // TestFindDueSchedulesSkipsUnparseableWakeAt guards an estate-wide wedge.
 // wake_at is TEXT, so an out-of-range timestamp (a workflow-controlled
 // Sleep.UntilUnix overflow reaches it) sorts BEFORE every real timestamp AND

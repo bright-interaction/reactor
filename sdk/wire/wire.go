@@ -125,15 +125,27 @@ type StepEnd struct {
 // re-spawns at wake_at; the new subprocess replays up to this Sleep call
 // and observes "already elapsed".
 type Sleep struct {
-	StepName string `json:"step_name"`
-	UntilUnix int64 `json:"until_unix"` // seconds since epoch
+	StepName  string `json:"step_name"`
+	UntilUnix int64  `json:"until_unix"` // seconds since epoch
+	// Seq is the per-run call ordinal, from the same counter as StepStart.Seq
+	// so it reflects program order across every durable operation. Without it a
+	// Sleep inside a loop matched the first iteration's schedule row, whose
+	// wake_at was already past, and every later iteration acked instantly.
+	// Zero = pre-ordinal SDK, legacy (run_id, step_name, kind) lookup.
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // AwaitSignal blocks until a signal arrives or the timeout elapses.
 type AwaitSignal struct {
-	StepName    string `json:"step_name"`
-	SignalName  string `json:"signal_name"`
-	TimeoutMs   int64  `json:"timeout_ms"` // 0 = no timeout
+	StepName   string `json:"step_name"`
+	SignalName string `json:"signal_name"`
+	TimeoutMs  int64  `json:"timeout_ms"` // 0 = no timeout
+	// Seq is the per-run call ordinal, from the same counter as StepStart.Seq.
+	// Two awaits sharing a signal name previously collapsed onto ONE schedule
+	// row, so the second returned the first's already-delivered payload without
+	// suspending and an approve-then-confirm gate auto-confirmed itself.
+	// Zero = pre-ordinal SDK, legacy (run_id, step_name, kind) lookup.
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // SignalDeliver is the host's delivery of a signal payload to a blocked

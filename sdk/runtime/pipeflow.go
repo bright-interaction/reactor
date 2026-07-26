@@ -221,8 +221,11 @@ var ErrPipeClosed = errors.New("reactor: host pipe closed")
 // and re-spawns at wake_at; the SDK contract is unchanged).
 func (p *PipeFlow) Sleep(ctx context.Context, name string, d time.Duration) error {
 	id := p.id()
+	// Same counter as Step, so the ordinal is this workflow's position in
+	// program order across every durable operation, not per-operation-type.
+	seq := p.nextSeq.Add(1)
 	until := time.Now().Add(d).Unix()
-	f, err := wire.Wrap(id, 0, wire.KindSleep, wire.Sleep{StepName: name, UntilUnix: until})
+	f, err := wire.Wrap(id, 0, wire.KindSleep, wire.Sleep{StepName: name, UntilUnix: until, Seq: seq})
 	if err != nil {
 		return err
 	}
@@ -247,7 +250,8 @@ func (p *PipeFlow) Sleep(ctx context.Context, name string, d time.Duration) erro
 // matching name, or the timeout elapses.
 func (p *PipeFlow) AwaitSignal(ctx context.Context, name string, timeout time.Duration) (reactor.Signal, error) {
 	id := p.id()
-	body := wire.AwaitSignal{StepName: name, SignalName: name, TimeoutMs: timeout.Milliseconds()}
+	seq := p.nextSeq.Add(1)
+	body := wire.AwaitSignal{StepName: name, SignalName: name, TimeoutMs: timeout.Milliseconds(), Seq: seq}
 	f, err := wire.Wrap(id, 0, wire.KindAwaitSignal, body)
 	if err != nil {
 		return reactor.Signal{}, err
