@@ -165,10 +165,7 @@ func (j *Journal) FireSignal(ctx context.Context, token string, payload []byte) 
 // resume) or because the delivery handler set wake_at = now and left fired
 // = false specifically so the next tick processes it.
 func (j *Journal) FindDueSchedules(ctx context.Context, now time.Time, limit int) ([]Schedule, error) {
-	const q = `SELECT id, run_id, step_name, kind, wake_at, signal_name, signal_token, signal_payload, fired, created_at
-		FROM schedules WHERE fired = $1 AND wake_at IS NOT NULL AND wake_at <= $2
-		ORDER BY wake_at ASC LIMIT $3`
-	rows, err := j.db.QueryContext(ctx, j.bind(q), j.boolValue(false), j.formatTime(now), limit)
+	rows, err := j.db.QueryContext(ctx, j.bind(j.fairDueScheduleQuery()), j.boolValue(false), j.formatTime(now), limit)
 	if err != nil {
 		return nil, fmt.Errorf("journal: find due: %w", err)
 	}
@@ -421,4 +418,72 @@ func NewSignalToken() (string, error) {
 		return "", fmt.Errorf("journal: signal token: %w", err)
 	}
 	return "sig_" + hex.EncodeToString(b), nil
+}
+
+// fairDueScheduleQuery interleaves due schedules ACROSS tenants instead of
+// draining them in global wake_at order.
+//
+// The old query was `WHERE fired = false AND wake_at <= now ORDER BY wake_at ASC
+// LIMIT n` with no tenant dimension, so one tenant holding a backlog of due
+// sleeps older than everyone else's filled the entire batch every tick and no
+// other tenant's suspended run resumed until that backlog drained. That is worse
+// than queue starvation: these runs are already mid-execution, so from the other
+// tenant's side the workflow has simply hung with no error anywhere.
+//
+// This mirrors fairCandidateQuery in queue.go, which already solved the same
+// problem for run admission, and adds the two tenant gates that resumption was
+// bypassing entirely because it never went through CheckWorkflowEnqueueAllowed:
+//
+//   - disabled tenants are skipped. Disabling a tenant stopped new runs while its
+//     suspended ones kept waking up and executing.
+//   - max_concurrent_runs is honoured, so a tenant cannot exceed its cap simply by
+//     having workflows sleep. The column defaults to 0 (meaning unlimited), so an
+//     install that has not deliberately set a cap sees no change; a capped tenant's
+//     wake-up is DELAYED rather than dropped, and the ROW_NUMBER interleave keeps
+//     that delay from being starvation.
+//
+// The cap matters in a different way per scheduler mode, which is worth knowing
+// before touching this. In DISTRIBUTED mode (Enqueue) the scheduler only flips the
+// run to 'queued' and a worker admits it through queue.go's fairCandidateQuery,
+// which already applies both gates, so here they merely apply EARLIER and avoid
+// claiming a schedule whose run would then sit un-admittable in 'queued'. In
+// IN-PROCESS mode the scheduler resumes the run directly and never touches the
+// queue, so this is the ONLY place either gate can be applied at all.
+//
+// The `running` CTE counts status='running' only. A run parked on a sleep is
+// 'suspended' (supervisor.go sets that when it suspends), so a sleeping run does
+// NOT consume its own tenant's concurrency slot. If it did, a tenant at its cap
+// could never wake anything and the cap would be a permanent deadlock rather than
+// backpressure.
+//
+// schedules has no tenant_id of its own; the tenant comes from the run. The join
+// is inner on purpose: a schedule whose run row is gone can never dispatch
+// successfully, and previously it was returned every tick to fail in the
+// scheduler loop.
+func (j *Journal) fairDueScheduleQuery() string {
+	falseLit := "false"
+	if j.engine == EngineSQLite {
+		falseLit = "0"
+	}
+	return `WITH running AS (
+		SELECT tenant_id, COUNT(*) AS n FROM runs WHERE status = 'running' GROUP BY tenant_id
+	),
+	ranked AS (
+		SELECT s.id, s.run_id, s.step_name, s.kind, s.wake_at, s.signal_name,
+			s.signal_token, s.signal_payload, s.fired, s.created_at, r.tenant_id,
+			ROW_NUMBER() OVER (PARTITION BY r.tenant_id ORDER BY s.wake_at, s.id) AS rn
+		FROM schedules s
+		JOIN runs r ON r.id = s.run_id
+		WHERE s.fired = $1 AND s.wake_at IS NOT NULL AND s.wake_at <= $2
+	)
+	SELECT k.id, k.run_id, k.step_name, k.kind, k.wake_at, k.signal_name,
+		k.signal_token, k.signal_payload, k.fired, k.created_at
+	FROM ranked k
+	LEFT JOIN tenants t ON t.tenant_id = k.tenant_id
+	LEFT JOIN running ru ON ru.tenant_id = k.tenant_id
+	WHERE (t.disabled IS NULL OR t.disabled = ` + falseLit + `)
+		AND (t.max_concurrent_runs IS NULL OR t.max_concurrent_runs <= 0
+			OR k.rn <= t.max_concurrent_runs - COALESCE(ru.n, 0))
+	ORDER BY k.rn, k.wake_at, k.id
+	LIMIT $3`
 }
