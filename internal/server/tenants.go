@@ -274,12 +274,12 @@ func billCell(bill journal.TenantBill) string {
 func tenantActions(t journal.Tenant, _ []journal.Plan) string {
 	// GDPR: export (portability) + erase run data, available for every tenant.
 	export := fmt.Sprintf(`<a href="/tenants/%s/export" class="btn-link" style="color:var(--accent);">export</a>`, urlEsc(t.TenantID))
-	erase := fmt.Sprintf(`<form method="POST" action="/tenants/%s/erase" class="form-inline" onsubmit="return confirm('Erase ALL run history + usage for tenant %s? This cannot be undone.');"><button type="submit" class="btn-link">erase data</button></form>`,
-		urlEsc(t.TenantID), template.JSEscapeString(t.TenantID))
+	erase := fmt.Sprintf(`<form method="POST" action="/tenants/%s/erase" class="form-inline" data-confirm="Erase ALL run history + usage for tenant %s? This cannot be undone."><button type="submit" class="btn-link">erase data</button></form>`,
+		urlEsc(t.TenantID), template.HTMLEscapeString(t.TenantID))
 	if t.TenantID == "default" {
 		return export + " " + erase + ` <span class="muted">(default)</span>`
 	}
-	del := fmt.Sprintf(`<form method="POST" action="/tenants/%s/delete" class="form-inline" onsubmit="return confirm('Delete tenant %s? Its runs keep their tenant id and revert to unlimited defaults.');"><button type="submit" class="btn-link">delete</button></form>`,
-		urlEsc(t.TenantID), template.JSEscapeString(t.TenantID))
+	del := fmt.Sprintf(`<form method="POST" action="/tenants/%s/delete" class="form-inline" data-confirm="Delete tenant %s? Its runs keep their tenant id and revert to unlimited defaults."><button type="submit" class="btn-link">delete</button></form>`,
+		urlEsc(t.TenantID), template.HTMLEscapeString(t.TenantID))
 	return export + " " + erase + " " + del
 }

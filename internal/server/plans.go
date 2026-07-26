@@ -126,8 +126,8 @@ func plansBody(list []journal.Plan, errMsg string) string {
 		if !p.HardCap {
 			capMode = `<span class="tag tag-off">overage</span>`
 		}
-		del := fmt.Sprintf(`<form method="POST" action="/plans/%s/delete" class="form-inline" onsubmit="return confirm('Delete plan %s? Tenants on it keep their current quotas.');"><button type="submit" class="btn-link">delete</button></form>`,
-			urlEsc(p.PlanID), template.JSEscapeString(p.PlanID))
+		del := fmt.Sprintf(`<form method="POST" action="/plans/%s/delete" class="form-inline" data-confirm="Delete plan %s? Tenants on it keep their current quotas."><button type="submit" class="btn-link">delete</button></form>`,
+			urlEsc(p.PlanID), template.HTMLEscapeString(p.PlanID))
 		fmt.Fprintf(&b, `<tr><td><code>%s</code><br><span class="muted">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
 			template.HTMLEscapeString(p.PlanID), template.HTMLEscapeString(p.Name),
 			fmtMoney(p.PriceCents, p.Currency), included, caps, overage, capMode, del,

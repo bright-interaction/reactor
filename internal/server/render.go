@@ -390,6 +390,7 @@ a.btn-secondary { display:inline-block; background:var(--surface); border:1px so
 a.btn-secondary:hover { background:var(--hover); border-color:var(--fg); text-decoration:none; }
 </style>
 <script src="/assets/theme.js"></script>
+<script src="/assets/ui.js"></script>
 </head>
 <body>
 <header>
