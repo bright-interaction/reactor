@@ -296,6 +296,42 @@ func (d *dispatcher) handleStepStart(ctx context.Context, f wire.Frame) error {
 		return err
 	}
 
+	// Ordinal path. body.Seq is the workflow's 1-based Step call ordinal, so
+	// two iterations of one flow.Step(name) in a loop are distinct rows rather
+	// than resolving to the same cached output. Zero means the workflow binary
+	// predates the ordinal, which falls through to the legacy name-keyed lookup
+	// below so already-compiled customer workflows keep running unchanged.
+	if body.Seq > 0 {
+		cached, recorded, serr := d.sup.Journal.FindCachedOutputBySeq(ctx, d.sup.RunID, body.Seq)
+		switch {
+		case serr == nil && recorded != body.StepName:
+			// The ordinal was recorded against a DIFFERENT step, so the
+			// workflow's program order changed between the original run and
+			// this one (a step inserted, removed or reordered). Serving the
+			// cache would attribute one step's result to another; re-executing
+			// would repeat a side effect the journal says already happened.
+			// Fail loudly instead. This check runs in LIVE mode too, not only
+			// under `reactor replay`: the live suspend/resume path is exactly
+			// where a redeploy mid-sleep changes the code underneath a run.
+			return fmt.Errorf("%w: step ordinal %d was recorded as %q but this run reached it as %q (workflow source changed across a resume)",
+				ErrReplayDivergence, body.Seq, recorded, body.StepName)
+		case serr == nil:
+			reply, _ := wire.Wrap(d.nextID(), f.ID, wire.KindStepReply, wire.StepReply{Replay: true, Output: cached})
+			return d.write(reply)
+		case !errors.Is(serr, journal.ErrNotFound):
+			return fmt.Errorf("supervisor: journal lookup by seq: %w", serr)
+		}
+		// Not cached: fall through to the replay-mode gate + insert below.
+		if d.sup.Mode == "replay" {
+			return fmt.Errorf("%w: step %q (ordinal %d) has no cached output", ErrReplayDivergence, body.StepName, body.Seq)
+		}
+		if _, err := d.sup.Journal.RecordStepStartSeq(ctx, d.sup.RunID, body.StepName, body.Seq, body.Attempt, body.IdempotencyKey, body.InputHash); err != nil {
+			return fmt.Errorf("supervisor: record step_start: %w", err)
+		}
+		reply, _ := wire.Wrap(d.nextID(), f.ID, wire.KindStepReply, wire.StepReply{Replay: false})
+		return d.write(reply)
+	}
+
 	cached, err := d.sup.Journal.FindCachedOutputForInput(ctx, d.sup.RunID, body.StepName, body.IdempotencyKey, body.InputHash)
 	if err == nil {
 		// Already succeeded against this exact input; tell the workflow
@@ -349,7 +385,7 @@ func (d *dispatcher) handleStepEnd(ctx context.Context, f wire.Frame) error {
 	if len(out) == 0 {
 		out = json.RawMessage("null")
 	}
-	if err := d.sup.Journal.RecordStepEnd(ctx, d.sup.RunID, body.StepName, body.Attempt, out, body.ErrorText); err != nil {
+	if err := d.sup.Journal.RecordStepEndSeq(ctx, d.sup.RunID, body.StepName, body.Seq, body.Attempt, out, body.ErrorText); err != nil {
 		return fmt.Errorf("supervisor: record step_end: %w", err)
 	}
 	// Final-attempt failures land in the dead-letter queue so an operator
