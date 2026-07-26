@@ -194,9 +194,35 @@ func cmdVaultAdd(ctx context.Context, _ *slog.Logger, args []string) error {
 	if err := store.Put(ctx, *name, plaintext); err != nil {
 		return fmt.Errorf("vault: put %s: %w", *name, err)
 	}
+	// docs/security.md lists `operator` / `reactor vault add` as an audited
+	// actor, and the CLI wrote no audit row at all: the "who touched which
+	// secret, when" trail had holes exactly where a human touched secrets by
+	// hand, while the dashboard path audited correctly.
+	auditCLI(ctx, repo, *id, "create.cli")
 
 	fmt.Printf("added %s (id=%s, auto_rotate=%t)\n", *name, *id, *autoRotate)
 	return nil
+}
+
+// auditCLI records an operator action from the CLI. Best-effort: a failed audit
+// write must not fail the command the operator already completed, but it is
+// logged rather than swallowed so a broken trail is discoverable.
+func auditCLI(ctx context.Context, repo *credentials.Repo, credentialID, action string) {
+	if repo == nil || credentialID == "" {
+		return
+	}
+	actor := os.Getenv("USER")
+	if actor == "" {
+		actor = os.Getenv("LOGNAME")
+	}
+	if err := repo.AppendAudit(ctx, credentials.AuditEntry{
+		CredentialID: credentialID,
+		Action:       action,
+		ActorKind:    "operator",
+		ActorID:      actor,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: audit row for %s not written: %v\n", action, err)
+	}
 }
 
 func cmdVaultRotate(ctx context.Context, log *slog.Logger, args []string) error {
@@ -337,6 +363,10 @@ func cmdVaultGrant(ctx context.Context, _ *slog.Logger, args []string) error {
 	if err := j.GrantSecret(ctx, wfID, credID, *by, *note); err != nil {
 		return err
 	}
+	if repo, repoCloser, rerr := openCredentials(*dbURL); rerr == nil {
+		defer repoCloser()
+		auditCLI(ctx, repo, credID, "grant.cli")
+	}
 	fmt.Printf("granted %s -> %s (workflow_id=%s)\n", slug, credID, wfID)
 	return nil
 }
@@ -374,6 +404,10 @@ func cmdVaultRevoke(ctx context.Context, _ *slog.Logger, args []string) error {
 			return fmt.Errorf("vault revoke: no grant for %s -> %s", slug, credID)
 		}
 		return err
+	}
+	if repo, repoCloser, rerr := openCredentials(*dbURL); rerr == nil {
+		defer repoCloser()
+		auditCLI(ctx, repo, credID, "revoke.cli")
 	}
 	fmt.Printf("revoked %s -> %s\n", slug, credID)
 	return nil
@@ -508,4 +542,3 @@ func decodeMasterKey(hexed string) ([]byte, error) {
 	}
 	return out, nil
 }
-

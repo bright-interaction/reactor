@@ -8,8 +8,16 @@ never sees.
 `internal/vault/` stores every credential AES-256-GCM with PBKDF2-SHA256
 600k iterations, 32-byte salt, 12-byte nonce, version byte for
 transparent re-encrypt on master-key rotation. The master key is the
-only thing protecting the blob; loss of the master key = total data
-loss (BIP39 24-word recovery encoded on init).
+only thing protecting the blob; **loss of the master key is total,
+unrecoverable loss of every credential.**
+
+There is no recovery mechanism. Earlier versions of this document
+promised a "BIP39 24-word recovery encoded on init"; that was never
+implemented and no mnemonic is ever shown. `reactor init` writes 32
+random bytes to `<state>/master.key` (mode 0600) and prints only the
+path. **Back that file up out of band before you store anything in the
+vault**, and see docs/operations.md for the rotation window
+(`REACTOR_MASTER_KEY_PREVIOUS`).
 
 ## Layer 2: MCP surface is metadata-only
 
@@ -32,9 +40,20 @@ workflow author messes up.
 
 The codegen system prompt teaches `vault.MustGet(id)`. The JSON schema
 slot for triggers carries `secret_id` not the value. AI gets the slot,
-never the secret. The reactor lint blocks `os/exec` and `net/http`
-direct imports so the AI can't smuggle a Secret out through a side
-channel.
+never the secret.
+
+The reactor lint blocks `os/exec`, `syscall`, `unsafe`, `math/rand` and
+(in the build allowlist) `C`, `plugin`, `os/signal`.
+
+**It does NOT block `net/http`, and it does not block `os`.** This
+document previously claimed otherwise. Workflow code therefore has
+unrestricted outbound network access and can read any file the daemon
+user can read, including `<state>/master.key`. Treat this layer as
+"the AI is steered toward referencing secrets by id", not as
+containment: a workflow author (or an AI writing on their behalf) who
+wants to exfiltrate a granted secret can, and the only real boundary is
+the OS the daemon runs as. Run the daemon as a dedicated unprivileged
+user with a `0700` state directory if that matters to you.
 
 ## Layer 5: run-time fetch is brokered + ACL'd
 
@@ -83,7 +102,9 @@ Every credential touch writes a `credential_audit` row. The dashboard's
 show on `/credentials/{id}`. Actor types:
 
 - `seed` -- migration-time seeding
-- `operator` -- CLI command (`reactor vault add`)
+- `operator` + `*.cli` action -- CLI command (`create.cli` from
+  `reactor vault add`, `grant.cli`, `revoke.cli`). `actor_id` carries
+  `$USER` when the environment provides it.
 - `operator` + `*.dashboard` action -- dashboard interaction
 - `scheduler` -- automatic rotation tick
 - `workflow:<slug>` -- runtime SecretFetch from a workflow
