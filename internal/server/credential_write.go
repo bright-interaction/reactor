@@ -39,10 +39,11 @@ func catLabel(cat string) string {
 // credential through the UI. The CLI surface (`reactor vault add`) still
 // works; this is for non-dev tenants who never want to open a terminal.
 func (s *Server) credentialNewForm(w http.ResponseWriter, r *http.Request) {
+	tenants, current := s.availableTenants(r)
 	s.renderPage(w, r, page{
 		Title:   "New credential",
 		Heading: "New credential",
-		Body:    template.HTML(credentialNewBody("", "")),
+		Body:    template.HTML(credentialNewBody("", tenants, current)),
 	})
 }
 
@@ -188,14 +189,14 @@ func (s *Server) credentialCreate(w http.ResponseWriter, r *http.Request) {
 	intervalDaysStr := strings.TrimSpace(r.PostFormValue("interval_days"))
 
 	if name == "" || provider == "" || value == "" {
-		s.renderCredentialNewError(w, "name, provider, and value are required", name, service)
+		s.renderCredentialNewError(w, r, "name, provider, and value are required", name, service)
 		return
 	}
 	intervalDays := 0
 	if intervalDaysStr != "" {
 		n, err := strconv.Atoi(intervalDaysStr)
 		if err != nil || n < 0 {
-			s.renderCredentialNewError(w, "interval_days must be a non-negative integer", name, service)
+			s.renderCredentialNewError(w, r, "interval_days must be a non-negative integer", name, service)
 			return
 		}
 		intervalDays = n
@@ -210,12 +211,24 @@ func (s *Server) credentialCreate(w http.ResponseWriter, r *http.Request) {
 	// recorded rotate.success and Stripe still held the old key. Payments break
 	// silently, and there is no way back because the original is gone.
 	if reason := s.rotationGuard(provider, autoRotate, r.PostFormValue("confirm_replace") == "on"); reason != "" {
-		s.renderCredentialNewError(w, reason, name, service)
+		s.renderCredentialNewError(w, r, reason, name, service)
 		return
+	}
+
+	// Owning tenant. A SCOPED viewer (a member) is forced into their own tenant
+	// whatever the form says, so a crafted POST cannot plant a credential in
+	// someone else's tenant; only a global admin may choose.
+	tenantID := strings.TrimSpace(r.PostFormValue("tenant_id"))
+	if scope := viewerScope(r); scope != "" {
+		tenantID = scope
+	}
+	if tenantID == "" {
+		tenantID = journal.DefaultTenant
 	}
 
 	id := name
 	if err := s.Credentials.Create(r.Context(), credentials.CreateParams{
+		TenantID:             tenantID,
 		ID:                   id,
 		Name:                 name,
 		Service:              service,
@@ -223,11 +236,11 @@ func (s *Server) credentialCreate(w http.ResponseWriter, r *http.Request) {
 		AutoRotate:           autoRotate,
 		RotationIntervalDays: intervalDays,
 	}); err != nil {
-		s.renderCredentialNewError(w, "create credential: "+err.Error(), name, service)
+		s.renderCredentialNewError(w, r, "create credential: "+err.Error(), name, service)
 		return
 	}
 	if err := s.Vault.Put(r.Context(), id, []byte(value)); err != nil {
-		s.renderCredentialNewError(w, "vault put: "+err.Error(), name, service)
+		s.renderCredentialNewError(w, r, "vault put: "+err.Error(), name, service)
 		return
 	}
 	_ = s.Credentials.AppendAudit(r.Context(), credentials.AuditEntry{
@@ -238,12 +251,13 @@ func (s *Server) credentialCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/credentials/"+id, http.StatusSeeOther)
 }
 
-func (s *Server) renderCredentialNewError(w http.ResponseWriter, msg, name, service string) {
+func (s *Server) renderCredentialNewError(w http.ResponseWriter, r *http.Request, msg, name, service string) {
+	tenants, current := s.availableTenants(r)
 	w.WriteHeader(http.StatusUnprocessableEntity)
 	render(w, layout, page{
 		Title:   "New credential",
 		Heading: "New credential",
-		Body:    template.HTML(credentialNewBody(msg, "")) + template.HTML(`<input type="hidden" id="prefill-name" value="`+template.HTMLEscapeString(name)+`"><input type="hidden" id="prefill-service" value="`+template.HTMLEscapeString(service)+`">`),
+		Body:    template.HTML(credentialNewBody(msg, tenants, current)) + template.HTML(`<input type="hidden" id="prefill-name" value="`+template.HTMLEscapeString(name)+`"><input type="hidden" id="prefill-service" value="`+template.HTMLEscapeString(service)+`">`),
 	})
 }
 
@@ -346,7 +360,52 @@ func (s *Server) credentialRevoke(w http.ResponseWriter, r *http.Request) {
 
 // credentialNewBody renders the add-credential form. errMsg is shown
 // inline above the fields when non-empty.
-func credentialNewBody(errMsg, _ string) string {
+// tenantSelect renders the owning-tenant picker for a create form, or nothing
+// when there is only one tenant to choose from.
+//
+// Without it the tenant plumbing is unreachable: an admin is global (viewerScope
+// returns ""), so even once the writers accept a tenant there is no way through
+// the UI to say which one, and everything keeps landing in "default". A member
+// sees their own tenant as read-only text, because the server forces their scope
+// regardless of what the form submits.
+func tenantSelect(tenants []journal.Tenant, current string) string {
+	if current == "" {
+		current = journal.DefaultTenant
+	}
+	if len(tenants) < 2 {
+		// Nothing to choose. Still submit the value so the create path is
+		// explicit about ownership rather than relying on a column default.
+		return `<input type="hidden" name="tenant_id" value="` + template.HTMLEscapeString(current) + `">`
+	}
+	var b strings.Builder
+	b.WriteString(`<label>Owning tenant <select name="tenant_id">`)
+	for _, t := range tenants {
+		sel := ""
+		if t.TenantID == current {
+			sel = " selected"
+		}
+		fmt.Fprintf(&b, `<option value="%s"%s>%s</option>`,
+			template.HTMLEscapeString(t.TenantID), sel, template.HTMLEscapeString(t.TenantID))
+	}
+	b.WriteString(`</select></label>`)
+	return b.String()
+}
+
+// availableTenants lists the tenants the viewer may create in. A scoped member
+// gets exactly their own; an admin gets all of them.
+func (s *Server) availableTenants(r *http.Request) ([]journal.Tenant, string) {
+	current := viewerTenant(r)
+	if scope := viewerScope(r); scope != "" || s.Journal == nil {
+		return []journal.Tenant{{TenantID: current}}, current
+	}
+	list, err := s.Journal.ListTenants(r.Context())
+	if err != nil || len(list) == 0 {
+		return []journal.Tenant{{TenantID: current}}, current
+	}
+	return list, current
+}
+
+func credentialNewBody(errMsg string, tenants []journal.Tenant, currentTenant string) string {
 	var b strings.Builder
 	if errMsg != "" {
 		b.WriteString(`<div class="err">` + template.HTMLEscapeString(errMsg) + `</div>`)
@@ -372,7 +431,8 @@ func credentialNewBody(errMsg, _ string) string {
 <form method="POST" action="/credentials" class="form" id="credential-form">
   <p class="muted">Adds a credential to the vault. Encrypted on write. The plaintext value is read-only after submission; rotate it later via the "Rotate now" button on the detail page.</p>
   <label>Name <input type="text" name="name" required pattern="[a-z0-9_\-]+" title="lowercase letters, digits, underscore, hyphen" autocomplete="off"></label>
-  <label>Service <input type="text" name="service" placeholder="e.g. stripe, sendgrid" autocomplete="off"></label>
+  <label>Service <input type="text" name="service" placeholder="e.g. stripe, sendgrid" autocomplete="off"></label>` +
+		tenantSelect(tenants, currentTenant) + `
   <label>Provider
     <select name="provider" required>
       <option value="manual">manual -- Reactor never changes the value; rotating records a reminder only. Correct for every externally issued API key (Stripe, Slack, SendGrid, ...)</option>

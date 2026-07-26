@@ -47,6 +47,10 @@ const (
 // attempt exists.
 var ErrNotFound = errors.New("journal: no cached output")
 
+// DefaultTenant is the tenant a resource lands in when none is specified. It
+// matches the schema default so existing rows and new unscoped writes agree.
+const DefaultTenant = "default"
+
 // Journal is the durable step log. Safe for concurrent use; the underlying
 // *sql.DB owns its connection pool.
 type Journal struct {
@@ -425,6 +429,32 @@ func (j *Journal) WorkflowIDBySlug(ctx context.Context, slug string) (string, er
 	return id, nil
 }
 
+// WorkflowIDBySlugInTenant resolves a slug WITHIN one tenant.
+//
+// Slugs are unique per tenant (UNIQUE (tenant_id, slug)), not globally, so the
+// unscoped WorkflowIDBySlug returns whichever tenant's row was created most
+// recently. That was harmless only while every workflow shared one tenant; once
+// tenants are real it silently resolves across the boundary, and its result
+// feeds HasGrant (the secret ACL) and the oauth tenant lookup. Use this wherever
+// the caller knows the tenant.
+//
+// An empty tenantID falls back to the unscoped lookup so callers that genuinely
+// have no tenant context (the CLI, the scheduler) keep working.
+func (j *Journal) WorkflowIDBySlugInTenant(ctx context.Context, slug, tenantID string) (string, error) {
+	if tenantID == "" {
+		return j.WorkflowIDBySlug(ctx, slug)
+	}
+	const q = `SELECT id FROM workflows WHERE slug = $1 AND tenant_id = $2 ORDER BY created_at DESC LIMIT 1`
+	var id string
+	if err := j.db.QueryRowContext(ctx, j.bind(q), slug, tenantID).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("journal: workflow id by slug in tenant: %w", err)
+	}
+	return id, nil
+}
+
 // WorkflowSlugByID is the inverse of WorkflowIDBySlug. Used by the
 // dispatcher to resolve a trigger's workflow_id back to a slug for
 // supervisor + binary registry lookups.
@@ -720,12 +750,27 @@ func (j *Journal) ListRuns(ctx context.Context, f RunFilter) ([]RunInfo, error) 
 // against the same slug should call RecordWorkflowVersion directly to
 // append a new version row without touching the workflows pointer.
 func (j *Journal) CreateWorkflow(ctx context.Context, id, slug, codeHash, sdkVer string, dag json.RawMessage) error {
+	return j.CreateWorkflowInTenant(ctx, id, slug, codeHash, sdkVer, dag, DefaultTenant)
+}
+
+// CreateWorkflowInTenant is CreateWorkflow with an explicit owner.
+//
+// CreateWorkflow's INSERT omitted tenant_id entirely, so every workflow took the
+// schema default and the tenant boundary was inert: a member on the default
+// tenant saw everything, a member moved to a real tenant saw nothing (no code
+// path could create a workflow there), and the cross-tenant grant guard could
+// never fire because both sides were always equal. Empty tenantID means
+// DefaultTenant so unscoped callers keep their existing behaviour.
+func (j *Journal) CreateWorkflowInTenant(ctx context.Context, id, slug, codeHash, sdkVer string, dag json.RawMessage, tenantID string) error {
+	if tenantID == "" {
+		tenantID = DefaultTenant
+	}
 	now := j.now()
 	dg := outputArg(dag, j.engine)
-	const q = `INSERT INTO workflows (id, slug, code_hash, sdk_version, dag_json, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	const q = `INSERT INTO workflows (id, tenant_id, slug, code_hash, sdk_version, dag_json, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 	_, err := j.db.ExecContext(ctx, j.bind(q),
-		id, slug, codeHash, sdkVer, dg, now, now,
+		id, tenantID, slug, codeHash, sdkVer, dg, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("journal: create workflow: %w", err)
