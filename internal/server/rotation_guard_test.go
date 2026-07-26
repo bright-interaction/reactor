@@ -131,7 +131,7 @@ func TestRotationGuardIsInertWhenRotationUnwired(t *testing.T) {
 // which is what the ~40-service preset catalog is full of.
 func TestCredentialNewFormDefaultsToManual(t *testing.T) {
 	t.Parallel()
-	html := credentialNewBody("", "")
+	html := credentialNewBody("", nil, "")
 	i := strings.Index(html, `<option value="manual"`)
 	if i < 0 {
 		t.Fatal("manual option missing")

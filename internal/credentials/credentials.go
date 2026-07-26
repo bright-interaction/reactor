@@ -131,8 +131,16 @@ type AuditEntry struct {
 // CreateParams captures the rotation-aware fields the test seed + admin
 // CLI pass when registering a credential.
 type CreateParams struct {
-	ID                   string
-	Name                 string
+	ID   string
+	Name string
+	// TenantID owns the credential. Empty means DefaultTenant.
+	//
+	// This used to be a hardcoded 'default' STRING LITERAL in the INSERT, not a
+	// parameter, so every credential in the system belonged to one tenant no
+	// matter what the caller intended. Combined with CreateWorkflow omitting the
+	// column, both sides of the cross-tenant grant guard were permanently equal,
+	// which made that guard vacuous: it could never fire.
+	TenantID             string
 	Service              string
 	Provider             string
 	ProviderMeta         map[string]string
@@ -140,6 +148,10 @@ type CreateParams struct {
 	RotationIntervalDays int
 	RotationTargets      []Target
 }
+
+// DefaultTenant is the tenant a resource lands in when no tenant is specified.
+// It matches the schema default, so existing rows and new unscoped writes agree.
+const DefaultTenant = "default"
 
 // Create inserts a credentials row with rotation metadata. The
 // encrypted blob lives in vault.Store; we persist a sentinel here so
@@ -153,14 +165,17 @@ func (r *Repo) Create(ctx context.Context, p CreateParams) error {
 	if p.Provider == "" {
 		p.Provider = "manual"
 	}
+	if p.TenantID == "" {
+		p.TenantID = DefaultTenant
+	}
 	meta := encodeJSON(p.ProviderMeta)
 	targets := encodeJSON(p.RotationTargets)
 	const q = `INSERT INTO credentials
 		(id, tenant_id, name, service, blob, metadata,
 		 provider, provider_meta, auto_rotate, rotation_interval_days, rotation_targets)
-		VALUES ($1, 'default', $2, $3, $4, '{}', $5, $6, $7, $8, $9)`
+		VALUES ($1, $2, $3, $4, $5, '{}', $6, $7, $8, $9, $10)`
 	_, err := r.db.ExecContext(ctx, r.bind(q),
-		p.ID, p.Name, p.Service,
+		p.ID, p.TenantID, p.Name, p.Service,
 		[]byte("sentinel"),
 		p.Provider, meta, r.boolValue(p.AutoRotate), p.RotationIntervalDays, targets,
 	)
