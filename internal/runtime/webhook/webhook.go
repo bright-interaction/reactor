@@ -172,7 +172,9 @@ func (r *Receiver) handle(w http.ResponseWriter, req *http.Request) {
 	}
 
 	deliveryID := pickDeliveryID(provider, req.Header, body)
-	fresh, err := r.Journal.RecordWebhookDelivery(ctx, provider, deliveryID)
+	// Scoped to THIS trigger: the dedup namespace used to be global, so a
+	// delivery id consumed by any other trigger silently suppressed this one.
+	fresh, err := r.Journal.RecordWebhookDelivery(ctx, trig.ID, provider, deliveryID)
 	if err != nil {
 		r.Log.Error("webhook: dedup record", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -192,7 +194,7 @@ func (r *Receiver) handle(w http.ResponseWriter, req *http.Request) {
 		runID, status, output, derr := r.Disp.DispatchSync(ctx, trig, body, time.Duration(sc.TimeoutSeconds)*time.Second)
 		if derr != nil {
 			if errors.Is(derr, dispatcher.ErrRateLimited) || errors.Is(derr, dispatcher.ErrCapacity) {
-				_ = r.Journal.DeleteWebhookDelivery(ctx, provider, deliveryID) // let the sender retry
+				_ = r.Journal.DeleteWebhookDelivery(ctx, trig.ID, provider, deliveryID) // let the sender retry
 				http.Error(w, "rate limited; retry later", http.StatusTooManyRequests)
 				return
 			}
@@ -206,7 +208,7 @@ func (r *Receiver) handle(w http.ResponseWriter, req *http.Request) {
 			}
 			r.Log.Error("webhook: sync dispatch", "trigger_id", trig.ID, "err", derr)
 			_ = r.Journal.MarkTriggerError(ctx, trig.ID, "dispatch: "+derr.Error())
-			_ = r.Journal.DeleteWebhookDelivery(ctx, provider, deliveryID)
+			_ = r.Journal.DeleteWebhookDelivery(ctx, trig.ID, provider, deliveryID)
 			http.Error(w, "dispatch failed", http.StatusInternalServerError)
 			return
 		}
@@ -228,7 +230,7 @@ func (r *Receiver) handle(w http.ResponseWriter, req *http.Request) {
 		// delivery is processed instead of silently deduped. Otherwise a
 		// transient dispatch failure permanently eats a Stripe/GitHub
 		// webhook.
-		if delErr := r.Journal.DeleteWebhookDelivery(ctx, provider, deliveryID); delErr != nil {
+		if delErr := r.Journal.DeleteWebhookDelivery(ctx, trig.ID, provider, deliveryID); delErr != nil {
 			r.Log.Warn("webhook: dedup rollback failed", "err", delErr, "trigger_id", trig.ID)
 		}
 		// Rate-limit / capacity are backpressure, not server faults: 429 tells
