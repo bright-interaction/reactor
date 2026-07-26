@@ -540,11 +540,12 @@ func usersBody(list []auth.User, me auth.User, errMsg string) string {
 				actions += fmt.Sprintf(`<form method="POST" action="/users/%s/disable" class="form-inline"><button type="submit" class="btn-link">disable</button></form>`,
 					template.URLQueryEscaper(u.ID))
 			}
-			actions += fmt.Sprintf(`<form method="POST" action="/users/%s/delete" class="form-inline" onsubmit="return confirm('Delete user %s?');"><button type="submit" class="btn-link">delete</button></form>`,
-				// JSEscapeString (not HTMLEscapeString) for the onsubmit JS
-				// string literal: an HTML-escaped quote (&#39;) is entity-decoded
-				// back to ' before the JS runs, letting a username break out.
-				template.URLQueryEscaper(u.ID), template.JSEscapeString(u.Username))
+			actions += fmt.Sprintf(`<form method="POST" action="/users/%s/delete" class="form-inline" data-confirm="Delete user %s?"><button type="submit" class="btn-link">delete</button></form>`,
+				// HTMLEscapeString now, not JSEscapeString: the message moved
+				// from an inline JS string literal into an HTML attribute, and
+				// the CSP blocks inline handlers so the old onsubmit never ran
+				// at all. In an attribute a JS-escaped quote is NOT neutralised.
+				template.URLQueryEscaper(u.ID), template.HTMLEscapeString(u.Username))
 		} else {
 			actions = `<span class="muted">(you)</span>`
 		}
@@ -600,9 +601,9 @@ func tokensBody(list []auth.APIToken, flashRaw string) string {
 			}
 			actions := ""
 			if !t.Revoked {
-				actions = fmt.Sprintf(`<form method="POST" action="/tokens/%s/revoke" class="form-inline" onsubmit="return confirm('Revoke token %s? CI scripts using it will start failing.');"><button type="submit" class="btn-link">revoke</button></form>`,
-					// onsubmit JS string literal: JSEscapeString, not HTMLEscapeString.
-					template.URLQueryEscaper(t.ID), template.JSEscapeString(t.Name))
+				actions = fmt.Sprintf(`<form method="POST" action="/tokens/%s/revoke" class="form-inline" data-confirm="Revoke token %s? CI scripts using it will start failing."><button type="submit" class="btn-link">revoke</button></form>`,
+					// HTML attribute now (see the delete-user site above).
+					template.URLQueryEscaper(t.ID), template.HTMLEscapeString(t.Name))
 			}
 			fmt.Fprintf(&b, `<tr><td>%s</td><td class="muted">%s</td><td class="muted">%s</td><td>%s</td><td>%s</td></tr>`,
 				template.HTMLEscapeString(t.Name),

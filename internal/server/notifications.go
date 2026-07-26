@@ -242,16 +242,15 @@ func notificationsBody(channels []journal.NotificationChannel, errMsg string) st
 		for _, c := range channels {
 			fmt.Fprintf(&b, `<tr><td>%s</td><td><code>%s</code></td><td class="muted">%s</td><td>
 <form method="POST" action="/notifications/%s/test" class="form-inline"><button type="submit">Send test</button></form>
-<form method="POST" action="/notifications/%s/delete" class="form-inline" onsubmit="return confirm('Delete channel %s? Active per-workflow routes block the delete.');"><button type="submit" class="btn-link">delete</button></form>
+<form method="POST" action="/notifications/%s/delete" class="form-inline" data-confirm="Delete channel %s? Active per-workflow routes block the delete."><button type="submit" class="btn-link">delete</button></form>
 </td></tr>`,
 				template.HTMLEscapeString(c.Name),
 				template.HTMLEscapeString(c.Kind),
 				formatTime(c.CreatedAt),
 				template.URLQueryEscaper(c.ID),
 				template.URLQueryEscaper(c.ID),
-				// onsubmit JS string literal: JSEscapeString, not
-				// HTMLEscapeString (an &#39; would decode back to ' and break out).
-				template.JSEscapeString(c.Name),
+				// data-confirm is an HTML attribute now, so HTMLEscapeString.
+				template.HTMLEscapeString(c.Name),
 			)
 		}
 		b.WriteString(`</tbody></table>`)
@@ -261,25 +260,25 @@ func notificationsBody(channels []journal.NotificationChannel, errMsg string) st
 	b.WriteString(`<form method="POST" action="/notifications" class="form">
   <label>Name <input type="text" name="name" required autocomplete="off" placeholder="e.g. ops-slack, on-call-email"></label>
   <label>Kind
-    <select name="kind" required onchange="document.querySelectorAll('.kind-fields').forEach(e=>e.hidden=true);var k=this.value;if(k){var el=document.getElementById('fields-'+k);if(el)el.hidden=false;}">
+    <select name="kind" required data-reveal-prefix="fields-">
       <option value="">choose...</option>
       <option value="slack_webhook">Slack (incoming webhook)</option>
       <option value="generic_webhook">Generic JSON webhook</option>
       <option value="email_smtp">Email (SMTP)</option>
     </select>
   </label>
-  <fieldset id="fields-slack_webhook" class="kind-fields" hidden>
+  <fieldset id="fields-slack_webhook" class="kind-fields js-reveal-target" hidden>
     <legend>Slack</legend>
     <label>Webhook URL <input type="url" name="slack_url" placeholder="https://hooks.slack.com/services/..."></label>
   </fieldset>
-  <fieldset id="fields-generic_webhook" class="kind-fields" hidden>
+  <fieldset id="fields-generic_webhook" class="kind-fields js-reveal-target" hidden>
     <legend>Generic webhook</legend>
     <label>Webhook URL <input type="url" name="webhook_url" placeholder="https://example.com/reactor"></label>
     <label>Optional auth header name <input type="text" name="webhook_header_name" placeholder="X-Auth-Token"></label>
     <label>Auth header value <input type="text" name="webhook_header_value" placeholder="plaintext (stored in config)"></label>
     <label>...or vault credential id <input type="text" name="webhook_header_credential_id" placeholder="cred_... (recommended; secret stays in the vault)"></label>
   </fieldset>
-  <fieldset id="fields-email_smtp" class="kind-fields" hidden>
+  <fieldset id="fields-email_smtp" class="kind-fields js-reveal-target" hidden>
     <legend>Email (SMTP)</legend>
     <label>SMTP host <input type="text" name="smtp_host" placeholder="smtp.gmail.com"></label>
     <label>SMTP port <input type="number" name="smtp_port" value="587" min="1" max="65535"></label>
@@ -306,15 +305,15 @@ func renderNotificationRoutesSection(slug string, routes []journal.NotificationR
 		b.WriteString(`<table><thead><tr><th>Channel</th><th>Kind</th><th>Fires on</th><th></th></tr></thead><tbody>`)
 		for _, r := range routes {
 			fmt.Fprintf(&b, `<tr><td>%s</td><td><code>%s</code></td><td><code>%s</code></td><td>
-<form method="POST" action="/workflows/%s/notifications/%s/delete" class="form-inline" onsubmit="return confirm('Detach %s from this workflow?');"><button type="submit" class="btn-link">detach</button></form>
+<form method="POST" action="/workflows/%s/notifications/%s/delete" class="form-inline" data-confirm="Detach %s from this workflow?"><button type="submit" class="btn-link">detach</button></form>
 </td></tr>`,
 				template.HTMLEscapeString(r.ChannelName),
 				template.HTMLEscapeString(r.ChannelKind),
 				template.HTMLEscapeString(r.OnStatuses),
 				template.URLQueryEscaper(slug),
 				template.URLQueryEscaper(r.ChannelID),
-				// onsubmit JS string literal: JSEscapeString, not HTMLEscapeString.
-				template.JSEscapeString(r.ChannelName),
+				// data-confirm is an HTML attribute now, so HTMLEscapeString.
+				template.HTMLEscapeString(r.ChannelName),
 			)
 		}
 		b.WriteString(`</tbody></table>`)

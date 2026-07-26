@@ -159,7 +159,7 @@ func workflowDetailBody(d workflowDetailData) string {
 <form method="POST" action="/workflows/%s/enable" class="form-inline">
   <button type="submit">Enable</button>
 </form>
-<form method="POST" action="/workflows/%s/delete" class="form-inline" onsubmit="return confirm('Delete workflow + all run history? This cannot be undone.');">
+<form method="POST" action="/workflows/%s/delete" class="form-inline" data-confirm="Delete workflow + all run history? This cannot be undone.">
   <button type="submit" class="btn-link">Delete (irreversible)</button>
 </form>`,
 		template.URLQueryEscaper(d.Slug),

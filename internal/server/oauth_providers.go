@@ -100,10 +100,10 @@ func oauthProvidersBody(list []oauth.Provider, redirectURI, errMsg string) strin
 			if p.ClientID != "" {
 				cid = `<code>` + template.HTMLEscapeString(p.ClientID) + `</code>`
 			}
-			fmt.Fprintf(&b, `<tr><td><code>%s</code><br><span class="muted">%s</span></td><td>%s</td><td>%s</td><td class="muted">%s</td><td>%s</td><td><form method="POST" action="/oauth-providers/%s/delete" class="form-inline" onsubmit="return confirm('Delete provider %s? Its connections are removed too.');"><button type="submit" class="btn-link">delete</button></form></td></tr>`,
+			fmt.Fprintf(&b, `<tr><td><code>%s</code><br><span class="muted">%s</span></td><td>%s</td><td>%s</td><td class="muted">%s</td><td>%s</td><td><form method="POST" action="/oauth-providers/%s/delete" class="form-inline" data-confirm="Delete provider %s? Its connections are removed too."><button type="submit" class="btn-link">delete</button></form></td></tr>`,
 				template.HTMLEscapeString(p.ProviderID), template.HTMLEscapeString(p.Name),
 				cid, secret, template.HTMLEscapeString(p.Scopes), status,
-				urlEsc(p.ProviderID), template.JSEscapeString(p.ProviderID))
+				urlEsc(p.ProviderID), template.HTMLEscapeString(p.ProviderID))
 		}
 		b.WriteString(`</tbody></table>`)
 	}

@@ -1171,7 +1171,7 @@ func runDetailBody(info journal.RunInfo, steps []journal.StepRow, flow, dlqID st
 
 	// Cancel: shown only while the run is still running or suspended.
 	if canCancel {
-		fmt.Fprintf(&b, `<form method="POST" action="/runs/%s/cancel" class="form-inline" onsubmit="return confirm('Cancel this run? A running step is killed; a suspended run will not resume.');">
+		fmt.Fprintf(&b, `<form method="POST" action="/runs/%s/cancel" class="form-inline" data-confirm="Cancel this run? A running step is killed; a suspended run will not resume.">
   <button type="submit" class="btn-link">Cancel run</button>
 </form>`, template.URLQueryEscaper(info.ID))
 	}
@@ -1330,7 +1330,7 @@ func credentialDetailBody(c credentials.Credential, rows []credentials.AuditEntr
   <span class="muted">runs the provider's mint -> deliver -> audit pipeline; safe to retry.</span>
 </form>`, template.URLQueryEscaper(c.ID))
 
-	fmt.Fprintf(&b, `<form method="POST" action="/credentials/%s/value" class="form-inline" onsubmit="return confirm('Overwrite the stored value? Any in-flight workflows holding the old value continue with it; new fetches see the new value.');">
+	fmt.Fprintf(&b, `<form method="POST" action="/credentials/%s/value" class="form-inline" data-confirm="Overwrite the stored value? Any in-flight workflows holding the old value continue with it; new fetches see the new value.">
   <label>Manual update <input type="password" name="value" required placeholder="new plaintext, encrypted on write" autocomplete="new-password"></label>
   <button type="submit">Update value</button>
 </form>

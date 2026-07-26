@@ -74,9 +74,9 @@ func integrationsBody(conns []oauth.Connection, providers []oauth.Provider, isAd
 			if c.Status != "connected" {
 				tag = `<span class="tag tag-off">` + template.HTMLEscapeString(c.Status) + `</span>`
 			}
-			fmt.Fprintf(&b, `<tr><td>%s</td><td>%s</td><td>%s</td><td><form method="POST" action="/connections/%s/delete" class="form-inline" onsubmit="return confirm('Disconnect %s?');"><button type="submit" class="btn-link">disconnect</button></form></td></tr>`,
+			fmt.Fprintf(&b, `<tr><td>%s</td><td>%s</td><td>%s</td><td><form method="POST" action="/connections/%s/delete" class="form-inline" data-confirm="Disconnect %s?"><button type="submit" class="btn-link">disconnect</button></form></td></tr>`,
 				template.HTMLEscapeString(name), template.HTMLEscapeString(c.Name), tag,
-				urlEsc(c.ID), template.JSEscapeString(c.Name))
+				urlEsc(c.ID), template.HTMLEscapeString(c.Name))
 		}
 		b.WriteString(`</tbody></table>`)
 	}
