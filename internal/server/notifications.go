@@ -21,6 +21,13 @@ type Notifier interface {
 }
 
 // notifications renders the channels list + the add-channel form.
+//
+// The UNSCOPED list is deliberate here and must stay. Every route in
+// mountNotificationsRoutes sits inside the requireAdminMW group, and admin is a
+// global role (viewerScope returns "" for it), so the only viewer who reaches
+// this page is one entitled to the whole install. The member-facing workflow
+// detail page had to switch to ListNotificationChannelsByTenant because it is
+// NOT admin-gated; that asymmetry is the point, not an oversight.
 func (s *Server) notifications(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	channels, err := s.Journal.ListNotificationChannels(ctx)
@@ -60,6 +67,13 @@ func (s *Server) notificationsCreate(w http.ResponseWriter, r *http.Request) {
 		tenantID = scope
 	}
 	if _, err := s.Journal.CreateNotificationChannelInTenant(r.Context(), tenantID, name, kind, cfg); err != nil {
+		if errors.Is(err, journal.ErrChannelNameTaken) {
+			// Names are unique per tenant, so this is always a collision inside
+			// the operator's own tenant. Say so, and say which name, rather than
+			// echoing a constraint error they cannot act on.
+			s.notificationsError(w, r, fmt.Sprintf("you already have a channel named %q; pick another name or edit the existing one", name))
+			return
+		}
 		s.notificationsError(w, r, err.Error())
 		return
 	}

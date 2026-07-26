@@ -146,3 +146,43 @@ func TestWorkflowNotificationRouteRoundTrip(t *testing.T) {
 		t.Fatalf("route survived detach: %+v", routes)
 	}
 }
+
+// TestDuplicateChannelNameGivesAnActionableError covers the operator half of the
+// per-tenant name change (migration 0027). The create handler used to pass
+// err.Error() straight to the page, so a duplicate name rendered
+// "journal: create notification channel: UNIQUE constraint failed:
+// notification_channels.tenant_id, notification_channels.name" into the browser:
+// it leaks the schema and tells the operator nothing about what to do next.
+func TestDuplicateChannelNameGivesAnActionableError(t *testing.T) {
+	t.Parallel()
+	srv, _, _ := newTestServer(t)
+	form := url.Values{
+		"name":      {"ops-slack"},
+		"kind":      {"slack_webhook"},
+		"slack_url": {"https://hooks.slack.com/services/X/Y/Z"},
+	}
+	if resp := postSameOrigin(t, srv.URL+"/notifications", form); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("first create = %d, want 303", resp.StatusCode)
+	}
+
+	resp := postSameOrigin(t, srv.URL+"/notifications", form)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("duplicate create = %d, want 422", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	page := string(body)
+
+	if !strings.Contains(page, "already have a channel named") {
+		t.Fatalf("no actionable duplicate-name message in the page:\n%s", page)
+	}
+	// The name must be echoed so the operator knows which one collided.
+	if !strings.Contains(page, "ops-slack") {
+		t.Fatal("the message does not say which name was taken")
+	}
+	// And no driver internals.
+	for _, leak := range []string{"UNIQUE constraint", "constraint failed", "notification_channels.tenant_id"} {
+		if strings.Contains(page, leak) {
+			t.Fatalf("the page leaks driver detail %q:\n%s", leak, page)
+		}
+	}
+}

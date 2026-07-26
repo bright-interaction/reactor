@@ -20,10 +20,20 @@ Two tables added by migration 0011.
 | Column | Type | Notes |
 |---|---|---|
 | id | text PK | `nch_<hex>` |
-| name | text UNIQUE | operator-chosen |
+| tenant_id | text NOT NULL | owning tenant, defaults to `default` |
+| name | text | operator-chosen, UNIQUE **per tenant** |
 | kind | text CHECK | `slack_webhook` \| `generic_webhook` \| `email_smtp` |
 | config_json | text/jsonb | per-kind shape (see below) |
 | created_at / updated_at | timestamp | |
+
+`UNIQUE (tenant_id, name)`, so two tenants may each own a channel called
+`ops-slack`. A duplicate inside one tenant returns `journal.ErrChannelNameTaken`,
+which the dashboard renders as "you already have a channel named ...".
+
+Reads are scoped accordingly. `/notifications` is admin-gated and admin is a
+global role, so that page intentionally lists every channel in the install. The
+member-facing workflow detail page uses `ListNotificationChannelsByTenant` for
+its attach-channel picker, scoped to the workflow's owning tenant.
 
 ### `workflow_notification_routes`
 
