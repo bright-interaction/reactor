@@ -79,7 +79,15 @@ func (s *Server) workflowDetail(w http.ResponseWriter, r *http.Request) {
 	flash := s.flash.take(w, r)
 
 	routes, _ := s.Journal.ListNotificationRoutesForWorkflow(ctx, wfID)
-	allChannels, _ := s.Journal.ListNotificationChannels(ctx)
+	// Scope the attach-channel picker to the WORKFLOW's tenant. This page is
+	// member-facing while /notifications is admin-gated, so an unscoped list
+	// here handed any member the id, name and kind of every alert channel in
+	// the install (and post-tenancy, every other tenant's).
+	channelScope := ""
+	if owner, oerr := s.Journal.WorkflowTenant(ctx, wfID); oerr == nil {
+		channelScope = owner
+	}
+	allChannels, _ := s.Journal.ListNotificationChannelsByTenant(ctx, channelScope)
 	downstream, _ := s.Journal.ChainTriggersDownstreamOf(ctx, wfID)
 	rateLimit, _ := s.Journal.WorkflowRateLimit(ctx, wfID)
 

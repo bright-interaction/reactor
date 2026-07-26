@@ -108,6 +108,75 @@ func TestCrossTenantGrantGuardCanActuallyFire(t *testing.T) {
 	}
 }
 
+// TestNotificationChannelsAreTenantScoped closes a member-visible metadata
+// leak. A channel is a top-level entity reachable only by id, so it had no
+// tenant anchor at all and ListNotificationChannels returned every channel in
+// the install. /notifications is admin-gated, but the MEMBER-facing workflow
+// detail page builds its attach-channel <select> from that same unscoped list,
+// so any member could read back the id, name and kind of every alert channel an
+// admin had configured, and post-tenancy every other tenant's too.
+func TestNotificationChannelsAreTenantScoped(t *testing.T) {
+	t.Parallel()
+	j, cleanup := newTestJournal(t)
+	defer cleanup()
+	ctx := context.Background()
+	cfg := json.RawMessage(`{"url":"https://hooks.slack.com/x"}`)
+
+	if _, err := j.CreateNotificationChannelInTenant(ctx, "acme", "acme-alerts", ChannelKindSlackWebhook, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.CreateNotificationChannelInTenant(ctx, "globex", "globex-alerts", ChannelKindSlackWebhook, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	acme, err := j.ListNotificationChannelsByTenant(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acme) != 1 || acme[0].Name != "acme-alerts" {
+		names := make([]string, 0, len(acme))
+		for _, c := range acme {
+			names = append(names, c.Name)
+		}
+		t.Fatalf("acme sees %v, want only acme-alerts", names)
+	}
+	if acme[0].TenantID != "acme" {
+		t.Fatalf("owner = %q, want acme", acme[0].TenantID)
+	}
+
+	// A tenant that owns none sees none, rather than everyone else's.
+	none, err := j.ListNotificationChannelsByTenant(ctx, "initech")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("unrelated tenant sees %d channels, want 0", len(none))
+	}
+
+	// The unscoped list is still whole-install, which is correct for a global
+	// admin and is exactly why the member-facing page must not call it.
+	all, err := j.ListNotificationChannels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("admin list = %d, want 2", len(all))
+	}
+
+	// The unscoped CREATE entry point still lands in the default tenant, so the
+	// CLI and any legacy caller keep working.
+	if _, err := j.CreateNotificationChannel(ctx, "legacy", ChannelKindSlackWebhook, cfg); err != nil {
+		t.Fatal(err)
+	}
+	def, err := j.ListNotificationChannelsByTenant(ctx, DefaultTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(def) != 1 || def[0].Name != "legacy" {
+		t.Fatalf("default tenant = %+v, want only legacy", def)
+	}
+}
+
 // TestCreateWorkflowDefaultsToDefaultTenant keeps the unscoped entry point
 // behaving exactly as before for the CLI, MCP and codegen callers that have no
 // tenant context.

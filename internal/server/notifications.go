@@ -28,10 +28,11 @@ func (s *Server) notifications(w http.ResponseWriter, r *http.Request) {
 		s.errorPage(w, "list notification channels", err)
 		return
 	}
+	tenants, current := s.availableTenants(r)
 	s.renderPage(w, r, page{
 		Title:   "Notifications",
 		Heading: "Notifications",
-		Body:    template.HTML(notificationsBody(channels, "")),
+		Body:    template.HTML(notificationsBody(channels, "", tenants, current)),
 	})
 }
 
@@ -53,7 +54,12 @@ func (s *Server) notificationsCreate(w http.ResponseWriter, r *http.Request) {
 		s.notificationsError(w, r, err.Error())
 		return
 	}
-	if _, err := s.Journal.CreateNotificationChannel(r.Context(), name, kind, cfg); err != nil {
+	// A scoped viewer is forced into their own tenant whatever the form says.
+	tenantID := strings.TrimSpace(r.PostFormValue("tenant_id"))
+	if scope := viewerScope(r); scope != "" {
+		tenantID = scope
+	}
+	if _, err := s.Journal.CreateNotificationChannelInTenant(r.Context(), tenantID, name, kind, cfg); err != nil {
 		s.notificationsError(w, r, err.Error())
 		return
 	}
@@ -155,11 +161,12 @@ func (s *Server) workflowNotificationRouteDelete(w http.ResponseWriter, r *http.
 // error pill above the form so the operator does not lose context.
 func (s *Server) notificationsError(w http.ResponseWriter, r *http.Request, msg string) {
 	channels, _ := s.Journal.ListNotificationChannels(r.Context())
+	tenants, current := s.availableTenants(r)
 	w.WriteHeader(http.StatusUnprocessableEntity)
 	s.renderPage(w, r, page{
 		Title:   "Notifications",
 		Heading: "Notifications",
-		Body:    template.HTML(notificationsBody(channels, msg)),
+		Body:    template.HTML(notificationsBody(channels, msg, tenants, current)),
 	})
 }
 
@@ -228,7 +235,7 @@ func parseChannelConfig(kind string, r *http.Request) (json.RawMessage, error) {
 }
 
 // notificationsBody renders the page contents.
-func notificationsBody(channels []journal.NotificationChannel, errMsg string) string {
+func notificationsBody(channels []journal.NotificationChannel, errMsg string, tenants []journal.Tenant, currentTenant string) string {
 	var b strings.Builder
 	if errMsg != "" {
 		b.WriteString(`<div class="err" style="background:#fff;border:1px solid var(--err);padding:12px 16px;margin:0 0 16px;border-radius:3px;">` +
@@ -258,7 +265,8 @@ func notificationsBody(channels []journal.NotificationChannel, errMsg string) st
 
 	b.WriteString(`<h2>Add channel</h2>`)
 	b.WriteString(`<form method="POST" action="/notifications" class="form">
-  <label>Name <input type="text" name="name" required autocomplete="off" placeholder="e.g. ops-slack, on-call-email"></label>
+  <label>Name <input type="text" name="name" required autocomplete="off" placeholder="e.g. ops-slack, on-call-email"></label>` +
+		tenantSelect(tenants, currentTenant) + `
   <label>Kind
     <select name="kind" required data-reveal-prefix="fields-">
       <option value="">choose...</option>
