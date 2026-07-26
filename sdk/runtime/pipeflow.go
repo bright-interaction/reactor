@@ -37,6 +37,10 @@ type PipeFlow struct {
 
 	nextID atomic.Int64
 
+	// nextSeq is the per-run Step call ordinal (1-based). Program order is
+	// what makes replay deterministic, so this counts Step calls, not frames.
+	nextSeq atomic.Int64
+
 	mu      sync.Mutex
 	pending map[int64]chan wire.Frame // request ID -> reply channel
 
@@ -125,12 +129,15 @@ func (p *PipeFlow) Step(ctx context.Context, name string, opts reactor.StepOpts,
 	}
 
 	attempt := 1 // host owns retries in week 4+; v0 is single-attempt per call.
+	// Claim this call's ordinal BEFORE any I/O so it reflects program order.
+	seq := p.nextSeq.Add(1)
 	startID := p.id()
 	startBody := wire.StepStart{
 		StepName:       name,
 		IdempotencyKey: opts.IdempotencyKey,
 		InputHash:      hashOpts(opts),
 		Attempt:        attempt,
+		Seq:            seq,
 	}
 	startFrame, err := wire.Wrap(startID, 0, wire.KindStepStart, startBody)
 	if err != nil {
@@ -170,6 +177,7 @@ func (p *PipeFlow) Step(ctx context.Context, name string, opts reactor.StepOpts,
 	endBody := wire.StepEnd{
 		StepName: name,
 		Attempt:  attempt,
+		Seq:      seq,
 		Output:   marshalOutput(out, fnErr),
 	}
 	if fnErr != nil {

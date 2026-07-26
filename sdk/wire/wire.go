@@ -83,6 +83,19 @@ type StepStart struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 	InputHash      string `json:"input_hash,omitempty"`
 	Attempt        int    `json:"attempt"`
+
+	// Seq is the 1-based per-run CALL ORDINAL: the count of Step calls this
+	// workflow has made, in program order. It is what makes a loop durable.
+	// Without it the replay key was (run_id, step_name), so a Step reused
+	// across iterations resolved every iteration to the FIRST one's journal
+	// row: the side effect ran once, the rest were served stale output, and
+	// the run still reported succeeded.
+	//
+	// Zero means the frame came from a workflow binary built against an SDK
+	// that predates the ordinal. The host falls back to legacy (run_id,
+	// step_name) semantics for those, so already-compiled customer workflows
+	// keep running unchanged until they are rebuilt.
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // StepReply is the host's verdict on whether to replay or proceed.
@@ -95,8 +108,12 @@ type StepReply struct {
 // Output is the JSON-marshaled return value; ErrorText is empty on success.
 // Retryable hints to the host whether to schedule a retry attempt.
 type StepEnd struct {
-	StepName  string          `json:"step_name"`
-	Attempt   int             `json:"attempt"`
+	StepName string `json:"step_name"`
+	Attempt  int    `json:"attempt"`
+	// Seq must match the StepStart that opened this step, so the host updates
+	// the right journal row. Keyed on name alone, a loop's third iteration
+	// overwrote the first iteration's row. Zero = pre-ordinal SDK.
+	Seq       int64           `json:"seq,omitempty"`
 	Output    json.RawMessage `json:"output,omitempty"`
 	ErrorText string          `json:"error_text,omitempty"`
 	Retryable bool            `json:"retryable,omitempty"`

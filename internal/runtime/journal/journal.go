@@ -74,13 +74,22 @@ func (j *Journal) WithLogger(log *slog.Logger) *Journal {
 // is returned, which the supervisor reads as "this attempt is already
 // recorded; check FindCachedOutput".
 func (j *Journal) RecordStepStart(ctx context.Context, runID, stepName string, attempt int, idemKey, inputHash string) (inserted bool, err error) {
+	return j.RecordStepStartSeq(ctx, runID, stepName, 0, attempt, idemKey, inputHash)
+}
+
+// RecordStepStartSeq is RecordStepStart keyed additionally by the per-run call
+// ordinal, which is what lets two iterations of one Step in a loop occupy two
+// journal rows instead of colliding on the primary key and being swallowed by
+// ON CONFLICT DO NOTHING. seq is 1-based; seq = 0 keeps legacy
+// (run_id, step_name) semantics for workflow binaries built before the ordinal.
+func (j *Journal) RecordStepStartSeq(ctx context.Context, runID, stepName string, seq int64, attempt int, idemKey, inputHash string) (inserted bool, err error) {
 	now := j.now()
 	const q = `INSERT INTO steps
-		(run_id, step_name, attempt, idempotency_key, input_hash, status, started_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		(run_id, step_name, seq, attempt, idempotency_key, input_hash, status, started_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT DO NOTHING`
 	res, err := j.db.ExecContext(ctx, j.bind(q),
-		runID, stepName, attempt, nullable(idemKey), inputHash, StatusRunning, now,
+		runID, stepName, seq, attempt, nullable(idemKey), inputHash, StatusRunning, now,
 	)
 	if err != nil {
 		return false, fmt.Errorf("journal: insert step_start: %w", err)
@@ -96,6 +105,14 @@ func (j *Journal) RecordStepStart(ctx context.Context, runID, stepName string, a
 // attempt row is missing, an error is returned because step_end without
 // step_start is a contract violation.
 func (j *Journal) RecordStepEnd(ctx context.Context, runID, stepName string, attempt int, output json.RawMessage, errText string) error {
+	return j.RecordStepEndSeq(ctx, runID, stepName, 0, attempt, output, errText)
+}
+
+// RecordStepEndSeq is RecordStepEnd narrowed to one call ordinal. seq must match
+// the RecordStepStartSeq that opened the step: keyed on name alone, the UPDATE
+// landed on the FIRST iteration's row when a Step repeats in a loop, so three
+// executions collapsed into one row carrying the last iteration's output.
+func (j *Journal) RecordStepEndSeq(ctx context.Context, runID, stepName string, seq int64, attempt int, output json.RawMessage, errText string) error {
 	now := j.now()
 	status := StatusSucceeded
 	if errText != "" {
@@ -103,16 +120,16 @@ func (j *Journal) RecordStepEnd(ctx context.Context, runID, stepName string, att
 	}
 	out := outputArg(output, j.engine)
 	const q = `UPDATE steps SET status = $1, output_jsonb = $2, error_text = $3, finished_at = $4
-		WHERE run_id = $5 AND step_name = $6 AND attempt = $7`
+		WHERE run_id = $5 AND step_name = $6 AND seq = $7 AND attempt = $8`
 	res, err := j.db.ExecContext(ctx, j.bind(q),
-		status, out, nullable(errText), now, runID, stepName, attempt,
+		status, out, nullable(errText), now, runID, stepName, seq, attempt,
 	)
 	if err != nil {
 		return fmt.Errorf("journal: update step_end: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return fmt.Errorf("journal: no step row for (%s, %s, %d)", runID, stepName, attempt)
+		return fmt.Errorf("journal: no step row for (%s, %s, seq=%d, attempt=%d)", runID, stepName, seq, attempt)
 	}
 	return nil
 }
@@ -127,6 +144,33 @@ func (j *Journal) RecordStepEnd(ctx context.Context, runID, stepName string, att
 // input_hash dimension.
 func (j *Journal) FindCachedOutput(ctx context.Context, runID, stepName, idemKey string) (json.RawMessage, error) {
 	return j.findCached(ctx, runID, stepName, idemKey, "")
+}
+
+// FindCachedOutputBySeq resolves a step by its per-run CALL ORDINAL rather than
+// by name, which is what makes a loop durable: two iterations of the same
+// flow.Step(name) are distinct ordinals and therefore distinct journal rows.
+//
+// It returns the step name recorded against that ordinal so the caller can
+// detect divergence. A recorded name that differs from the one now being
+// requested means the workflow's program order changed between the original run
+// and this replay (a step was inserted, removed or reordered), and serving the
+// cached output would silently attribute one step's result to another.
+func (j *Journal) FindCachedOutputBySeq(ctx context.Context, runID string, seq int64) (out json.RawMessage, recordedStep string, err error) {
+	if seq <= 0 {
+		return nil, "", ErrNotFound
+	}
+	const q = `SELECT output_jsonb, step_name FROM steps
+		WHERE run_id = $1 AND seq = $2 AND status = $3
+		ORDER BY attempt DESC LIMIT 1`
+	var raw []byte
+	row := j.db.QueryRowContext(ctx, j.bind(q), runID, seq, StatusSucceeded)
+	if err := row.Scan(&raw, &recordedStep); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, "", ErrNotFound
+		}
+		return nil, "", fmt.Errorf("journal: find cached by seq: %w", err)
+	}
+	return raw, recordedStep, nil
 }
 
 // FindCachedOutputForInput is FindCachedOutput plus an input_hash filter.
