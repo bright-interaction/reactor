@@ -764,6 +764,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		Title:   "Reactor",
 		Heading: "Reactor",
 		Body: template.HTML(homeBody(homeData{
+			ShowTenant:       scope == "",
 			Workflows:        wfs,
 			Available:        availableSet,
 			Runs:             runs,
@@ -1053,6 +1054,11 @@ func (s *Server) errorPage(w http.ResponseWriter, op string, err error) {
 // Page shell + base CSS + render() now live in render.go.
 
 type homeData struct {
+	// ShowTenant is set when the viewer can see more than one tenant (an admin).
+	// Slugs are unique only PER TENANT, so a bare /workflows/<slug> link is
+	// ambiguous for them and one tenant's workflow would be unreachable; the
+	// links carry ?tenant= so clicking through lands on the row you clicked.
+	ShowTenant       bool
 	Workflows        []journal.Workflow
 	Available        map[string]bool
 	Runs             []journal.RunInfo
@@ -1089,7 +1095,11 @@ func homeBody(d homeData) string {
 	if len(d.Workflows) == 0 {
 		b.WriteString(`<p class="empty">No workflows yet. Ask your connected AI client (Claude Code / Codex) to build one over MCP, scaffold with <code>reactor new</code>, or upload a tarball.</p>`)
 	} else {
-		b.WriteString(`<table><thead><tr><th>Slug</th><th>ID</th><th>SDK</th><th>Binary</th><th>Updated</th><th></th></tr></thead><tbody>`)
+		if d.ShowTenant {
+			b.WriteString(`<table><thead><tr><th>Slug</th><th>Tenant</th><th>ID</th><th>SDK</th><th>Binary</th><th>Updated</th><th></th></tr></thead><tbody>`)
+		} else {
+			b.WriteString(`<table><thead><tr><th>Slug</th><th>ID</th><th>SDK</th><th>Binary</th><th>Updated</th><th></th></tr></thead><tbody>`)
+		}
 		for _, w := range d.Workflows {
 			binStatus := `<span class="warn">missing</span>`
 			if d.Available[w.Slug] {
@@ -1100,9 +1110,17 @@ func homeBody(d homeData) string {
 				runBtn = fmt.Sprintf(`<form method="POST" action="/workflows/%s/run" class="form-inline"><button type="submit" class="btn-link">run now</button></form>`,
 					template.URLQueryEscaper(w.Slug))
 			}
-			fmt.Fprintf(&b, `<tr><td><a href="/workflows/%s"><code>%s</code></a></td><td><code>%s</code></td><td>%s</td><td>%s</td><td class="muted">%s</td><td>%s</td></tr>`,
-				template.URLQueryEscaper(w.Slug),
-				template.HTMLEscapeString(w.Slug), template.HTMLEscapeString(w.ID), template.HTMLEscapeString(w.SDKVersion), binStatus, formatTime(w.UpdatedAt), runBtn)
+			// ?tenant= only for a viewer who can see several tenants; a member's
+			// own scope already resolves the slug unambiguously.
+			href := "/workflows/" + template.URLQueryEscaper(w.Slug)
+			tenantCell := ""
+			if d.ShowTenant {
+				href += "?tenant=" + template.URLQueryEscaper(w.TenantID)
+				tenantCell = fmt.Sprintf(`<td><code>%s</code></td>`, template.HTMLEscapeString(w.TenantID))
+			}
+			fmt.Fprintf(&b, `<tr><td><a href="%s"><code>%s</code></a></td>%s<td><code>%s</code></td><td>%s</td><td>%s</td><td class="muted">%s</td><td>%s</td></tr>`,
+				href, template.HTMLEscapeString(w.Slug), tenantCell,
+				template.HTMLEscapeString(w.ID), template.HTMLEscapeString(w.SDKVersion), binStatus, formatTime(w.UpdatedAt), runBtn)
 		}
 		b.WriteString(`</tbody></table>`)
 	}
@@ -1601,4 +1619,41 @@ func (s *Server) RunWithTLS(ctx context.Context, addr string, tls TLSConfig) err
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// workflowIDForViewer resolves a slug from the URL to a workflow id WITHIN the
+// viewer's tenant.
+//
+// Slugs are unique per tenant, not globally (UNIQUE (tenant_id, slug)), but the
+// dashboard addresses workflows by slug. The unscoped WorkflowIDBySlug answers
+// "WHERE slug = $1 ORDER BY created_at DESC LIMIT 1", so once two tenants owned
+// the same slug it returned whichever registered it most recently. For a member
+// that meant resolving to ANOTHER tenant's workflow, and while the scope check
+// downstream then correctly returned 404, the member could no longer open a
+// workflow they actually own: the newer tenant's row shadowed theirs permanently.
+//
+// viewerScope is "" for an admin, and WorkflowIDBySlugInTenant falls back to the
+// unscoped lookup on an empty tenant, so admin behaviour is unchanged.
+// An admin has no scope of their own, so for them a bare slug is genuinely
+// ambiguous once two tenants own it: the unscoped lookup hands back whichever is
+// newest and the other tenant's workflow becomes unreachable through the UI
+// entirely. `?tenant=` lets them say which one they mean, and the workflow list
+// links carry it (see workflowHref). A MEMBER's scope always wins, so the
+// parameter can never be used to reach across a boundary.
+func (s *Server) workflowIDForViewer(r *http.Request, slug string) (string, error) {
+	scope := viewerScope(r)
+	if scope == "" {
+		scope = strings.TrimSpace(r.URL.Query().Get("tenant"))
+	}
+	return s.Journal.WorkflowIDBySlugInTenant(r.Context(), slug, scope)
+}
+
+// workflowHref builds the dashboard link for a workflow, disambiguating by tenant
+// when the viewer can see more than one. Members get a bare path since their
+// scope already pins the resolution.
+func workflowHref(r *http.Request, slug, ownerTenant string) string {
+	if viewerScope(r) != "" || ownerTenant == "" {
+		return "/workflows/" + url.PathEscape(slug)
+	}
+	return "/workflows/" + url.PathEscape(slug) + "?tenant=" + url.QueryEscape(ownerTenant)
 }

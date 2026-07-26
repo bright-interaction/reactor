@@ -142,9 +142,18 @@ func renderPerWorkflowTable(rows []journal.WorkflowAnalytics) string {
 		if row.EstimatedMinutesSavedPerRun > 0 {
 			baseline = fmt.Sprintf("%d min/run", row.EstimatedMinutesSavedPerRun)
 		}
+		// Always carry ?tenant=. Slugs are unique only per tenant, so two rows can
+		// share a slug and a bare href would send both to whichever workflow is
+		// newest. The parameter is honoured only for a viewer with no scope of
+		// their own (an admin); a member's own scope always wins in
+		// workflowIDForViewer, so this cannot be used to cross a boundary.
+		href := "/workflows/" + template.URLQueryEscaper(row.Slug)
+		if row.TenantID != "" {
+			href += "?tenant=" + template.URLQueryEscaper(row.TenantID)
+		}
 		fmt.Fprintf(&b,
-			`<tr><td><a href="/workflows/%s"><code>%s</code></a></td><td>%d</td><td>%d</td><td class="muted">%s</td><td>%s</td><td><strong>%s</strong></td></tr>`,
-			template.URLQueryEscaper(row.Slug),
+			`<tr><td><a href="%s"><code>%s</code></a></td><td>%d</td><td>%d</td><td class="muted">%s</td><td>%s</td><td><strong>%s</strong></td></tr>`,
+			href,
 			template.HTMLEscapeString(row.Slug),
 			row.SucceededRuns,
 			row.FailedRuns,

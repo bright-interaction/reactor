@@ -116,7 +116,12 @@ func cmdWorkflowRegister(ctx context.Context, log *slog.Logger, args []string) e
 
 	// Idempotency: if a workflow with this slug already exists, update
 	// the SDK version + code hash + dag rather than inserting a duplicate.
-	existing, err := j.WorkflowIDBySlug(ctx, *slug)
+	//
+	// Scoped to the tenant CreateWorkflow below actually writes to
+	// (DefaultTenant). Slugs are unique per tenant, so the unscoped lookup
+	// answered "does ANY tenant own this slug" and another tenant's row made this
+	// print "already registered (id=...)" while creating nothing here.
+	existing, err := j.WorkflowIDBySlugInTenant(ctx, *slug, journal.DefaultTenant)
 	if err != nil && !errors.Is(err, journal.ErrNotFound) {
 		return err
 	}

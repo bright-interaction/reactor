@@ -38,8 +38,7 @@ func (s *Server) workflowCreateTrigger(w http.ResponseWriter, r *http.Request) {
 		kind = "webhook"
 	}
 
-	ctx := r.Context()
-	wfID, err := s.Journal.WorkflowIDBySlug(ctx, slug)
+	wfID, err := s.workflowIDForViewer(r, slug)
 	if err != nil {
 		if errors.Is(err, journal.ErrNotFound) {
 			http.Error(w, "workflow not registered", http.StatusNotFound)
@@ -74,7 +73,7 @@ func (s *Server) createChainTrigger(w http.ResponseWriter, r *http.Request, slug
 		http.Error(w, "source_slug is required", http.StatusBadRequest)
 		return
 	}
-	sourceID, err := s.Journal.WorkflowIDBySlug(r.Context(), sourceSlug)
+	sourceID, err := s.workflowIDForViewer(r, sourceSlug)
 	if err != nil {
 		http.Error(w, "source workflow not found: "+sourceSlug, http.StatusNotFound)
 		return

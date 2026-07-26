@@ -2,7 +2,9 @@ package journal
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -31,6 +33,19 @@ func (j *Journal) CreateChainTrigger(ctx context.Context, downstreamWorkflowID, 
 		return "", err
 	} else if cyclic {
 		return "", fmt.Errorf("journal: chain trigger would create a cycle (%s already chains back to %s)", downstreamWorkflowID, sourceWorkflowID)
+	}
+	// Cross-tenant refusal, same shape as GrantSecret. This validated self-loops
+	// and cycles but never that the two workflows belong to the same tenant, so a
+	// chain could make one tenant's completed run start another tenant's workflow
+	// and hand it the source run's output as input. That is cross-tenant code
+	// execution plus a data channel, not just a visibility leak. Both rows must
+	// resolve, otherwise a chain naming a nonexistent workflow silently succeeds.
+	srcTenant, downTenant, err := j.chainTenants(ctx, sourceWorkflowID, downstreamWorkflowID)
+	if err != nil {
+		return "", err
+	}
+	if srcTenant != downTenant {
+		return "", fmt.Errorf("journal: chain trigger refused: source tenant %q != downstream tenant %q (cross-tenant chains are not allowed)", srcTenant, downTenant)
 	}
 	onStatuses = normaliseStatuses(onStatuses)
 	if onStatuses == "" {
@@ -235,4 +250,32 @@ func (j *Journal) ChainTriggersUpstreamOf(ctx context.Context, workflowID string
 		}
 	}
 	return out, nil
+}
+
+// chainTenants resolves the owning tenants of both ends of a chain edge,
+// refusing when either workflow is missing. Mirrors grantTenants and
+// routeTenants: three relations in this schema now enforce the same rule, and
+// GrantSecret used to be the only one that did.
+func (j *Journal) chainTenants(ctx context.Context, sourceWorkflowID, downstreamWorkflowID string) (string, string, error) {
+	lookup := func(id string) (string, error) {
+		var tenant sql.NullString
+		err := j.db.QueryRowContext(ctx,
+			j.bind(`SELECT tenant_id FROM workflows WHERE id = $1`), id).Scan(&tenant)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("journal: chain trigger: unknown workflow %q", id)
+		}
+		if err != nil {
+			return "", fmt.Errorf("journal: chain trigger: lookup workflow tenant: %w", err)
+		}
+		return tenant.String, nil
+	}
+	src, err := lookup(sourceWorkflowID)
+	if err != nil {
+		return "", "", err
+	}
+	down, err := lookup(downstreamWorkflowID)
+	if err != nil {
+		return "", "", err
+	}
+	return src, down, nil
 }

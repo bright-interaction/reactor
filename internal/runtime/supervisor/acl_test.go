@@ -41,6 +41,14 @@ func newACLEnv(t *testing.T) (*journal.Journal, *vault.Store) {
 	if err := j.CreateWorkflow(context.Background(), "wf_acl", "acl-test", "h", "0.1.0", json.RawMessage(`{}`)); err != nil {
 		t.Fatalf("create wf: %v", err)
 	}
+	// The run row is load-bearing: the ACL gate resolves which workflow is
+	// executing from runs.workflow_id, not from the supervisor's slug, because
+	// slugs are unique only per tenant and the slug lookup crossed the boundary.
+	// This harness previously set RunID to an id it never created, so the gate
+	// was deciding against an unresolvable identity.
+	if err := j.CreateRun(context.Background(), "run_acl", "wf_acl", "manual", json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
 	// The vault here is in-memory, so nothing else creates the credentials
 	// rows. GrantSecret/RevokeSecret now require both sides of a grant to
 	// exist (a grant naming a resource that is not there was how phantom

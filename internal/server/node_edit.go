@@ -59,7 +59,7 @@ func (s *Server) workflowNodeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upstream, downstream, runID := s.nodeDataflow(r.Context(), slug, dir, step)
+	upstream, downstream, runID := s.nodeDataflow(r.Context(), slug, dir, step, viewerScope(r))
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -118,7 +118,7 @@ func (s *Server) workflowSaveNodeCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dagBytes, _ := os.ReadFile(filepath.Join(dir, "dag.json"))
-	if status, err := s.writeValidatedCode(r.Context(), slug, dir, []byte(merged), dagBytes); err != nil {
+	if status, err := s.writeValidatedCode(r.Context(), slug, dir, viewerScope(r), []byte(merged), dagBytes); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}

@@ -550,7 +550,13 @@ func (s *Server) registerTools() {
 				if len(a.DAG) == 0 {
 					a.DAG = json.RawMessage(`{}`)
 				}
-				existing, err := s.Journal.WorkflowIDBySlug(ctx, a.Slug)
+				// The existence check must ask about the SAME tenant the create
+				// below writes to, which is DefaultTenant (CreateWorkflow is the
+				// unscoped entry point). Asking unscoped is the SkipIfExists bug:
+				// slugs are unique per tenant, so another tenant owning this slug
+				// made this return created:false with THEIR workflow id while
+				// nothing existed in the tenant the caller was writing to.
+				existing, err := s.Journal.WorkflowIDBySlugInTenant(ctx, a.Slug, journal.DefaultTenant)
 				if err == nil && existing != "" {
 					return map[string]any{"id": existing, "slug": a.Slug, "created": false}, nil
 				}

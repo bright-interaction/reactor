@@ -29,7 +29,7 @@ func (s *Server) workflowDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	wfID, err := s.Journal.WorkflowIDBySlug(ctx, slug)
+	wfID, err := s.workflowIDForViewer(r, slug)
 	if err != nil {
 		if errors.Is(err, journal.ErrNotFound) {
 			http.Error(w, "workflow not registered", http.StatusNotFound)
@@ -697,7 +697,7 @@ func (s *Server) workflowSaveCode(w http.ResponseWriter, r *http.Request) {
 	// EmitInput shape; the chain checks dag.json validity too.
 	dagBytes, _ := os.ReadFile(filepath.Join(dir, "dag.json"))
 
-	if status, err := s.writeValidatedCode(r.Context(), slug, dir, body, dagBytes); err != nil {
+	if status, err := s.writeValidatedCode(r.Context(), slug, dir, viewerScope(r), body, dagBytes); err != nil {
 		// 422 is a build/lint failure: the workflow author needs the compiler
 		// output to fix their own code, so surface it. Everything else
 		// (including 500) is an internal error that must not leak SQL/paths/vault
@@ -718,7 +718,7 @@ func (s *Server) workflowSaveCode(w http.ResponseWriter, r *http.Request) {
 // in a tmp dir so a failed validate never leaves a half-written file. Returns
 // (0, nil) on success; on failure an HTTP status (422 for a validation error,
 // 500 for IO) plus the error to surface.
-func (s *Server) writeValidatedCode(ctx context.Context, slug, dir string, body, dagBytes []byte) (int, error) {
+func (s *Server) writeValidatedCode(ctx context.Context, slug, dir, viewerTenant string, body, dagBytes []byte) (int, error) {
 	tmpDir, err := os.MkdirTemp("", "reactor-edit-")
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("tmp dir: %w", err)
@@ -779,7 +779,7 @@ func (s *Server) writeValidatedCode(ctx context.Context, slug, dir string, body,
 	// owner rather than the editor's scope.
 	owner := ""
 	if s.Journal != nil {
-		if wfID, lerr := s.Journal.WorkflowIDBySlug(ctx, slug); lerr == nil {
+		if wfID, lerr := s.Journal.WorkflowIDBySlugInTenant(ctx, slug, viewerTenant); lerr == nil {
 			owner, _ = s.Journal.WorkflowTenant(ctx, wfID)
 		}
 	}

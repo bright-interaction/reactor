@@ -99,7 +99,7 @@ func (s *Server) workflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wfID, err := s.Journal.WorkflowIDBySlug(r.Context(), slug)
+	wfID, err := s.workflowIDForViewer(r, slug)
 	if err != nil {
 		if errors.Is(err, journal.ErrNotFound) {
 			http.Error(w, "workflow not registered", http.StatusNotFound)
@@ -169,7 +169,7 @@ func (s *Server) setWorkflowEnabled(w http.ResponseWriter, r *http.Request, enab
 	if !ok {
 		return
 	}
-	wfID, err := s.Journal.WorkflowIDBySlug(r.Context(), slug)
+	wfID, err := s.workflowIDForViewer(r, slug)
 	if err != nil {
 		s.errorPage(w, "lookup workflow", err)
 		return
@@ -189,7 +189,7 @@ func (s *Server) workflowDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wfID, err := s.Journal.WorkflowIDBySlug(r.Context(), slug)
+	wfID, err := s.workflowIDForViewer(r, slug)
 	if err != nil {
 		s.errorPage(w, "lookup workflow", err)
 		return
@@ -227,7 +227,7 @@ func (s *Server) workflowSetMinutesSaved(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "minutes must be a non-negative integer", http.StatusBadRequest)
 		return
 	}
-	wfID, err := s.Journal.WorkflowIDBySlug(r.Context(), slug)
+	wfID, err := s.workflowIDForViewer(r, slug)
 	if err != nil {
 		if errors.Is(err, journal.ErrNotFound) {
 			http.Error(w, "workflow not registered", http.StatusNotFound)
@@ -255,7 +255,7 @@ func (s *Server) workflowSetRateLimit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "per_min must be a non-negative integer", http.StatusBadRequest)
 		return
 	}
-	wfID, err := s.Journal.WorkflowIDBySlug(r.Context(), slug)
+	wfID, err := s.workflowIDForViewer(r, slug)
 	if err != nil {
 		if errors.Is(err, journal.ErrNotFound) {
 			http.Error(w, "workflow not registered", http.StatusNotFound)

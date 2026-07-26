@@ -216,6 +216,20 @@ func (j *Journal) AddNotificationRoute(ctx context.Context, workflowID, channelI
 	if onStatuses == "" {
 		return errors.New("journal: on_statuses must list at least one terminal status")
 	}
+	// Cross-tenant refusal, same shape as GrantSecret. A route is a relation
+	// between two owned things, and until migration 0026 gave channels a
+	// tenant_id this comparison was impossible, so it was never written: an admin
+	// could point tenant A's workflow at tenant B's channel and every failure of
+	// A's run (slug, error text, dashboard URL) would be delivered into B's Slack.
+	// Requiring both rows to resolve is what makes the comparison meaningful,
+	// otherwise a route naming a nonexistent channel silently "succeeds".
+	wfTenant, chTenant, err := j.routeTenants(ctx, workflowID, channelID)
+	if err != nil {
+		return err
+	}
+	if wfTenant != chTenant {
+		return fmt.Errorf("journal: notification route refused: workflow tenant %q != channel tenant %q (cross-tenant routes are not allowed)", wfTenant, chTenant)
+	}
 	const q = `INSERT INTO workflow_notification_routes (workflow_id, channel_id, on_statuses)
 		VALUES ($1, $2, $3)
 		ON CONFLICT(workflow_id, channel_id) DO UPDATE SET on_statuses = excluded.on_statuses`
@@ -391,3 +405,28 @@ func scanChannel(scan func(...any) error, j *Journal) (NotificationChannel, erro
 	return ch, nil
 }
 
+
+// routeTenants resolves the owning tenants of a workflow and a notification
+// channel, refusing when either row is missing. Mirrors grantTenants: a relation
+// whose endpoints cannot both be resolved is not a relation worth writing, and a
+// missing row was how phantom grants got in through MCP and the CLI.
+func (j *Journal) routeTenants(ctx context.Context, workflowID, channelID string) (string, string, error) {
+	var wfTenant, chTenant sql.NullString
+	err := j.db.QueryRowContext(ctx,
+		j.bind(`SELECT tenant_id FROM workflows WHERE id = $1`), workflowID).Scan(&wfTenant)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", fmt.Errorf("journal: notification route: unknown workflow %q", workflowID)
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("journal: notification route: lookup workflow tenant: %w", err)
+	}
+	err = j.db.QueryRowContext(ctx,
+		j.bind(`SELECT tenant_id FROM notification_channels WHERE id = $1`), channelID).Scan(&chTenant)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", fmt.Errorf("journal: notification route: unknown channel %q", channelID)
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("journal: notification route: lookup channel tenant: %w", err)
+	}
+	return wfTenant.String, chTenant.String, nil
+}

@@ -92,12 +92,12 @@ func dagConnections(dagBytes []byte, step string) (upstream, downstream []nodeCo
 // status) from the workflow's most recent run, plus that run's id. Returns an
 // empty map (not an error) when there is no journal, no run, or no steps yet --
 // the editor degrades to showing connections without sample data.
-func (s *Server) latestStepOutputs(ctx context.Context, slug string) (map[string]nodeConn, string) {
+func (s *Server) latestStepOutputs(ctx context.Context, slug, tenantID string) (map[string]nodeConn, string) {
 	out := map[string]nodeConn{}
 	if s.Journal == nil {
 		return out, ""
 	}
-	wfID, err := s.Journal.WorkflowIDBySlug(ctx, slug)
+	wfID, err := s.Journal.WorkflowIDBySlugInTenant(ctx, slug, tenantID)
 	if err != nil {
 		return out, ""
 	}
@@ -120,10 +120,10 @@ func (s *Server) latestStepOutputs(ctx context.Context, slug string) (map[string
 
 // nodeDataflow assembles the connections for step, enriching each upstream
 // entry with sample output from the latest run when available.
-func (s *Server) nodeDataflow(ctx context.Context, slug, dir, step string) (upstream, downstream []nodeConn, runID string) {
+func (s *Server) nodeDataflow(ctx context.Context, slug, dir, step, tenantID string) (upstream, downstream []nodeConn, runID string) {
 	dagBytes, _ := os.ReadFile(filepath.Join(dir, "dag.json"))
 	upstream, downstream = dagConnections(dagBytes, step)
-	outputs, runID := s.latestStepOutputs(ctx, slug)
+	outputs, runID := s.latestStepOutputs(ctx, slug, tenantID)
 	for i := range upstream {
 		if o, ok := outputs[upstream[i].Name]; ok {
 			upstream[i].Output = o.Output
