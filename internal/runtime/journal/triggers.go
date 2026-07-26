@@ -111,10 +111,13 @@ func (j *Journal) MarkTriggerError(ctx context.Context, id, msg string) error {
 // RecordWebhookDelivery inserts (provider, delivery_id) for dedup. Returns
 // (true, nil) when the delivery is new, (false, nil) on duplicate. The
 // caller treats duplicates as 200 no-ops per the webhook idempotency contract.
-func (j *Journal) RecordWebhookDelivery(ctx context.Context, provider, deliveryID string) (bool, error) {
-	const q = `INSERT INTO webhook_deliveries (provider, delivery_id) VALUES ($1, $2)
+// triggerID scopes the dedup namespace. It used to be absent, so a delivery id
+// consumed by ONE trigger made every other trigger receiving that id answer
+// "deduped" and never dispatch. See migration 0025.
+func (j *Journal) RecordWebhookDelivery(ctx context.Context, triggerID, provider, deliveryID string) (bool, error) {
+	const q = `INSERT INTO webhook_deliveries (trigger_id, provider, delivery_id) VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING`
-	res, err := j.db.ExecContext(ctx, j.bind(q), provider, deliveryID)
+	res, err := j.db.ExecContext(ctx, j.bind(q), triggerID, provider, deliveryID)
 	if err != nil {
 		return false, fmt.Errorf("journal: record webhook delivery: %w", err)
 	}
@@ -129,9 +132,9 @@ func (j *Journal) RecordWebhookDelivery(ctx context.Context, provider, deliveryI
 // this to roll back the dedup claim when dispatch fails, so the provider's
 // retry of the SAME delivery is treated as fresh instead of being eaten
 // as a duplicate. Best-effort: a missing row is not an error.
-func (j *Journal) DeleteWebhookDelivery(ctx context.Context, provider, deliveryID string) error {
-	const q = `DELETE FROM webhook_deliveries WHERE provider = $1 AND delivery_id = $2`
-	if _, err := j.db.ExecContext(ctx, j.bind(q), provider, deliveryID); err != nil {
+func (j *Journal) DeleteWebhookDelivery(ctx context.Context, triggerID, provider, deliveryID string) error {
+	const q = `DELETE FROM webhook_deliveries WHERE trigger_id = $1 AND provider = $2 AND delivery_id = $3`
+	if _, err := j.db.ExecContext(ctx, j.bind(q), triggerID, provider, deliveryID); err != nil {
 		return fmt.Errorf("journal: delete webhook delivery: %w", err)
 	}
 	return nil
