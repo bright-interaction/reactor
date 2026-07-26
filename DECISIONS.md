@@ -40,13 +40,19 @@ deploy to Postgres from day one on the existing BI ops stack.
    Future: optionally vendor a Go toolchain inside the binary if community demand materialises.
 2. **Worker model**: in-process scheduler + N supervisor goroutines for v0. The `leases` table
    is in the schema from migration 1 so external workers can be added without a schema change.
-3. **Replay determinism**: `reactor lint` forbids `math/rand`, `time.Now`, and direct `net/http`
-   calls outside `Step` closures. Temporal-strict by default.
+3. **Replay determinism**: `reactor lint` forbids `math/rand` and `time.Now`
+   outside `Step` closures. Temporal-strict by default. NOTE: it does NOT forbid
+   direct `net/http`, which this item originally also claimed; that part was
+   never implemented, so workflows have unrestricted egress (see
+   docs/security.md Layer 4).
 
 ## Code generation + AI
 
 4. **Workflow code at rest**: filesystem + git. Generated workflows land in
-   `reactor-workflows/<slug>/` and are committed. `git log` is the audit trail.
+   `reactor-workflows/<slug>/` and are committed **when the directory is inside a
+   git repository**. Nothing in Reactor runs `git init`, so on a default install
+   the committer no-ops and `git log` is not an audit trail until an operator
+   creates the repo themselves. STATUS: partially implemented.
    Opt-out via `REACTOR_GIT_BACKED=false` for low-disk installs.
 5. **Dry-run sandbox**: in-process for v0. Child process + seccomp before v1 GA.
 
@@ -63,6 +69,11 @@ deploy to Postgres from day one on the existing BI ops stack.
 ## Vault
 
 9. **Master-key recovery format**: BIP39 24-word mnemonic. Adds `tyler-smith/go-bip39` (MIT).
+   STATUS: **NOT IMPLEMENTED.** The dependency was never added and no mnemonic is
+   ever generated or shown. `<state>/master.key` is the only copy of the key, so
+   an out-of-band backup is mandatory. This decision is recorded as still-open,
+   not as shipped behaviour; docs/security.md and docs/operations.md previously
+   described it as delivered.
    Worth the dep; users actually write down the words.
 10. **Default dual-validity window**: 60s. Per-rotator overrides (AWS IAM 90s, Postal 30s).
     Workflow runtime exposes `Drain()` so scheduler can extend the window up to 5 min if

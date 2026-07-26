@@ -11,7 +11,7 @@ v0.1 ready. The daemon ticks scheduler + cron + rotation + HTTP + webhook + sign
 ## What makes this different
 
 - **AI builds, not drags.** No visual canvas. Claude with the MCP Environment Lens (services, credentials metadata, schemas, run history, post-mortems, knowledge corpus) is the primary builder.
-- **Code as artifact.** Generated Go is committed to `reactor-workflows/`. `git log` is the audit trail. No JSON config drift.
+- **Code as artifact.** Generated Go is written to disk as real source, not JSON config, so it diffs and reviews like code. Commits are **opt-in**: the committer walks up from the workflow directory looking for a `.git`, and no-ops when there is none. `reactor init` does not create a repo, so run `git init` in your state directory (or point `--workflows-dir` at an existing repo) if you want `git log` as the audit trail. Note the MCP authoring path builds in a temp directory and does not retain source at all.
 - **Durable execution.** Step journal in the database. Workflows resume after restart. `Sleep(72h)` is real. Replay any past run.
 - **Self-contained vault.** AES-256-GCM, PBKDF2-SHA256 600k iterations, autorotation with zero-downtime hot-swap.
 - **One binary.** Go runtime, dashboard, webhook + signal receivers, vault, scheduler, rotation engine, MCP server, all embedded. SQLite single-node or Postgres scale-out.

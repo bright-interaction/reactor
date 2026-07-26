@@ -105,7 +105,10 @@ fix (see the relevant migration's Down block).
 
 ## Disaster recovery
 
-Lost master key + no BIP39 recovery = total credential data loss. The
+A lost master key is total credential data loss. There is NO recovery
+mechanism: the BIP39 mnemonic earlier docs promised was never built, so
+`<state>/master.key` is the only copy and backing it up out of band is
+mandatory, not optional. The
 workflows + run history survive (those are plaintext); only the vault
 blob is encrypted-at-rest. Recovery options:
 
