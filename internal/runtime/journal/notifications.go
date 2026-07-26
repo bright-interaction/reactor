@@ -22,6 +22,7 @@ const (
 // the notifier package owns the per-kind unmarshalling.
 type NotificationChannel struct {
 	ID         string          `json:"id"`
+	TenantID   string          `json:"tenant_id"`
 	Name       string          `json:"name"`
 	Kind       string          `json:"kind"`
 	ConfigJSON json.RawMessage `json:"config_json"`
@@ -60,9 +61,36 @@ func (j *Journal) CreateNotificationChannel(ctx context.Context, name, kind stri
 	if !json.Valid(config) {
 		return "", errors.New("journal: notification channel config must be valid JSON")
 	}
-	const q = `INSERT INTO notification_channels (id, name, kind, config_json) VALUES ($1, $2, $3, $4)`
+	return j.createChannel(ctx, id, DefaultTenant, name, kind, config)
+}
+
+// CreateNotificationChannelInTenant records the owning tenant. A channel is a
+// top-level entity reachable only by id, so without this it had no tenant
+// anchor at all and every list returned every channel in the install.
+func (j *Journal) CreateNotificationChannelInTenant(ctx context.Context, tenantID, name, kind string, config json.RawMessage) (string, error) {
+	id, err := newID("nch_")
+	if err != nil {
+		return "", err
+	}
+	if name == "" {
+		return "", errors.New("journal: notification channel name is required")
+	}
+	if !validChannelKind(kind) {
+		return "", fmt.Errorf("journal: unknown channel kind %q", kind)
+	}
+	if !json.Valid(config) {
+		return "", errors.New("journal: notification channel config must be valid JSON")
+	}
+	if tenantID == "" {
+		tenantID = DefaultTenant
+	}
+	return j.createChannel(ctx, id, tenantID, name, kind, config)
+}
+
+func (j *Journal) createChannel(ctx context.Context, id, tenantID, name, kind string, config json.RawMessage) (string, error) {
+	const q = `INSERT INTO notification_channels (id, tenant_id, name, kind, config_json) VALUES ($1, $2, $3, $4, $5)`
 	cfg := outputArg(config, j.engine)
-	if _, err := j.db.ExecContext(ctx, j.bind(q), id, name, kind, cfg); err != nil {
+	if _, err := j.db.ExecContext(ctx, j.bind(q), id, tenantID, name, kind, cfg); err != nil {
 		return "", fmt.Errorf("journal: create notification channel: %w", err)
 	}
 	return id, nil
@@ -78,9 +106,24 @@ func validChannelKind(kind string) bool {
 
 // ListNotificationChannels returns every channel ordered by name.
 func (j *Journal) ListNotificationChannels(ctx context.Context) ([]NotificationChannel, error) {
-	const q = `SELECT id, name, kind, config_json, created_at, updated_at
-		FROM notification_channels ORDER BY name ASC`
-	rows, err := j.db.QueryContext(ctx, j.bind(q))
+	return j.ListNotificationChannelsByTenant(ctx, "")
+}
+
+// ListNotificationChannelsByTenant scopes the list. An empty tenantID means
+// every channel, which is correct for a global admin and wrong for anyone else:
+// the member-facing workflow detail page builds its attach-channel <select>
+// from this, so an unscoped call there leaks the id/name/kind of every channel
+// in the install.
+func (j *Journal) ListNotificationChannelsByTenant(ctx context.Context, tenantID string) ([]NotificationChannel, error) {
+	q := `SELECT id, tenant_id, name, kind, config_json, created_at, updated_at
+		FROM notification_channels`
+	args := []any{}
+	if tenantID != "" {
+		q += ` WHERE tenant_id = $1`
+		args = append(args, tenantID)
+	}
+	q += ` ORDER BY name ASC`
+	rows, err := j.db.QueryContext(ctx, j.bind(q), args...)
 	if err != nil {
 		return nil, fmt.Errorf("journal: list notification channels: %w", err)
 	}
@@ -98,7 +141,7 @@ func (j *Journal) ListNotificationChannels(ctx context.Context) ([]NotificationC
 
 // GetNotificationChannel returns one channel by id.
 func (j *Journal) GetNotificationChannel(ctx context.Context, id string) (NotificationChannel, error) {
-	const q = `SELECT id, name, kind, config_json, created_at, updated_at
+	const q = `SELECT id, tenant_id, name, kind, config_json, created_at, updated_at
 		FROM notification_channels WHERE id = $1`
 	row := j.db.QueryRowContext(ctx, j.bind(q), id)
 	ch, err := scanChannel(row.Scan, j)
@@ -309,7 +352,7 @@ func scanChannel(scan func(...any) error, j *Journal) (NotificationChannel, erro
 		created  sql.NullString
 		updated  sql.NullString
 	)
-	if err := scan(&ch.ID, &ch.Name, &ch.Kind, &cfgBytes, &created, &updated); err != nil {
+	if err := scan(&ch.ID, &ch.TenantID, &ch.Name, &ch.Kind, &cfgBytes, &created, &updated); err != nil {
 		return NotificationChannel{}, err
 	}
 	ch.ConfigJSON = append(json.RawMessage(nil), cfgBytes...)

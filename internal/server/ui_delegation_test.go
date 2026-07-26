@@ -19,7 +19,7 @@ import (
 // https://hooks.slack.com/" on a form that had also wiped itself.
 func TestNotificationFormRevealIsDelegated(t *testing.T) {
 	t.Parallel()
-	html := notificationsBody(nil, "")
+	html := notificationsBody(nil, "", nil, "")
 
 	if strings.Contains(html, "onchange=") {
 		t.Fatal("the kind select still uses an inline onchange, which the CSP blocks; the fieldsets would stay hidden forever")
@@ -82,7 +82,7 @@ func TestDestructiveChannelActionsCarryConfirm(t *testing.T) {
 	t.Parallel()
 	html := notificationsBody([]journal.NotificationChannel{
 		{ID: "ch1", Name: "ops-slack", Kind: "slack_webhook"},
-	}, "")
+	}, "", nil, "")
 	if !strings.Contains(html, `data-confirm="Delete channel `) {
 		t.Fatal("delete-channel has no confirmation")
 	}
