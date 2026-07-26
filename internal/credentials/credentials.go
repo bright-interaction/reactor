@@ -73,6 +73,47 @@ type Target struct {
 	GraceSeconds int    `json:"grace_seconds,omitempty"`
 }
 
+// TargetKinds are the delivery kinds the rotation runner implements, with the
+// operator-facing meaning of the shared URL/KeyName fields (the Target struct is
+// uniform; only the semantics differ per kind).
+var TargetKinds = []struct {
+	Kind, Label, URLHint, KeyNameHint string
+	NeedsKeyName, NeedsSecretID       bool
+}{
+	{"webhook", "Webhook (one POST, receiver swaps atomically)", "POST URL the receiver listens on", "body key the new value arrives under, e.g. SCANNER_SVAR_SECRET", true, true},
+	{"reload_endpoint", "Reload endpoint (two-phase: accept, then cut over)", "POST URL the receiver listens on", "body key the new value arrives under", true, true},
+	{"file_write", "File write (drop the value on disk)", "absolute file path (must sit under REACTOR_FILE_WRITE_ROOT)", "", false, false},
+	{"forgejo_secret", "Forgejo repo/org secret", "Forgejo API base for the repo or org", "secret name to set", true, true},
+	{"github_secret", "GitHub Actions secret", "GitHub repo API base", "secret name to set", true, true},
+	{"dockyard_vault", "Dockyard vault entry", "vault entry endpoint", "", false, true},
+}
+
+// Validate reports whether a target carries the fields its kind requires. It is
+// the single source of truth for that rule: the dashboard uses it to reject a
+// half-filled form, and the rotation runner uses it before attempting delivery,
+// so the two cannot drift into accepting different things.
+func (t Target) Validate() error {
+	for _, k := range TargetKinds {
+		if k.Kind != t.Kind {
+			continue
+		}
+		if t.URL == "" {
+			return fmt.Errorf("target %q missing url (%s)", t.Kind, k.URLHint)
+		}
+		if k.NeedsKeyName && t.KeyName == "" {
+			return fmt.Errorf("target %q missing key_name (%s)", t.Kind, k.KeyNameHint)
+		}
+		if k.NeedsSecretID && t.SecretID == "" {
+			return fmt.Errorf("target %q missing secret_id (the vault credential holding the auth secret for this target)", t.Kind)
+		}
+		if t.GraceSeconds < 0 {
+			return fmt.Errorf("target %q grace_seconds must not be negative", t.Kind)
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupported target kind %q", t.Kind)
+}
+
 // AuditEntry is a single row from credential_audit.
 type AuditEntry struct {
 	ID           int64           `json:"id"`
@@ -203,6 +244,39 @@ func (r *Repo) ListNeedingRotation(ctx context.Context, now time.Time) ([]Creden
 }
 
 // MarkRotated updates last_rotated_at + clears last_rotation_error.
+// SetRotationTargets replaces a credential's delivery targets.
+//
+// Before this existed, rotation_targets could only be populated by hand-written
+// SQL: no repo setter, no caller, no UI, no CLI flag. So every credential an
+// operator could create had ZERO targets, and rotation stored the new value and
+// delivered it nowhere while the audit trail recorded success. Delivery is the
+// product's headline differentiator, so it was the differentiator that was
+// unreachable.
+//
+// Every target is validated before the write, so a malformed one cannot sit in
+// the column waiting to fail at rotation time (hours later, in a scheduler tick
+// no one is watching).
+func (r *Repo) SetRotationTargets(ctx context.Context, id string, targets []Target) error {
+	for i, t := range targets {
+		if err := t.Validate(); err != nil {
+			return fmt.Errorf("credentials: target %d: %w", i+1, err)
+		}
+	}
+	if targets == nil {
+		targets = []Target{}
+	}
+	const q = `UPDATE credentials SET rotation_targets = $1, updated_at = $2 WHERE id = $3`
+	res, err := r.db.ExecContext(ctx, r.bind(q), encodeJSON(targets), r.formatTime(time.Now().UTC()), id)
+	if err != nil {
+		return fmt.Errorf("credentials: set rotation targets: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (r *Repo) MarkRotated(ctx context.Context, id string, at time.Time) error {
 	const q = `UPDATE credentials
 		SET last_rotated_at = $1, last_rotation_error = NULL, updated_at = $2
