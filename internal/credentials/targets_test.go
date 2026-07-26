@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -166,6 +167,86 @@ func TestSetRotationTargetsRejectsInvalid(t *testing.T) {
 	got, _ := r.Get(ctx, "c1")
 	if len(got.RotationTargets) != 0 {
 		t.Fatalf("rejected batch must not persist, got %+v", got.RotationTargets)
+	}
+}
+
+// TestDeleteKeepsTheAuditTrail pins the side of the trade that must never be
+// sacrificed. An audited credential is tombstoned rather than removed, because
+// credential_audit is the "who touched which secret, when" record and dropping
+// it to reclaim an identifier is the wrong call for a security product.
+//
+// This was learned the hard way in the same session: an earlier attempt narrowed
+// the UNIQUE constraint via a SQLite table rebuild, and the rebuild DESTROYED
+// credential_audit (the FK follows the rename to credentials_old and the
+// subsequent DROP takes the rows with it). That migration was reverted.
+func TestDeleteKeepsTheAuditTrail(t *testing.T) {
+	t.Parallel()
+	r, cleanup := newRepo(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if err := r.Create(ctx, CreateParams{ID: "c1", Name: "stripe-key", Provider: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AppendAudit(ctx, AuditEntry{CredentialID: "c1", Action: "create.dashboard", ActorKind: "operator"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// WITH audit history: the row must be retained so the trail survives, and
+	// the caller is told so rather than discovering it from a later duplicate
+	// key error.
+	if err := r.Delete(ctx, "c1"); !errors.Is(err, ErrAuditRetained) {
+		t.Fatalf("delete of an audited credential = %v, want ErrAuditRetained", err)
+	}
+	if _, err := r.Get(ctx, "c1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted credential still readable: %v", err)
+	}
+	list, err := r.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range list {
+		if c.ID == "c1" {
+			t.Fatal("deleted credential still listed")
+		}
+	}
+	audit, err := r.ListAudit(ctx, "c1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(audit) != 1 || audit[0].Action != "create.dashboard" {
+		t.Fatalf("audit trail lost on delete: %+v", audit)
+	}
+}
+
+// TestDeleteWithoutAuditFreesTheIdentifier is the case that actually matters:
+// a create that failed between the row write and the vault put. It has no audit
+// rows yet, so the row deletes cleanly and the operator can simply retry.
+//
+// Before this, that state was unrecoverable without hand-written SQL: the row
+// could not be deleted (credential_audit's FK) and its identifier could not be
+// reused, because the id defaults to the NAME so the surviving row held both.
+func TestDeleteWithoutAuditFreesTheIdentifier(t *testing.T) {
+	t.Parallel()
+	r, cleanup := newRepo(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if err := r.Create(ctx, CreateParams{ID: "stripe-key", Name: "stripe-key", Provider: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Delete(ctx, "stripe-key"); err != nil {
+		t.Fatalf("a credential with no audit history should delete cleanly: %v", err)
+	}
+	// Retrying the create with the SAME name must now work, which is the whole
+	// point: the id defaults to the name, so a surviving row would collide on
+	// the primary key even if the name were freed.
+	if err := r.Create(ctx, CreateParams{ID: "stripe-key", Name: "stripe-key", Provider: "manual"}); err != nil {
+		t.Fatalf("identifier should be reusable after a clean delete: %v", err)
+	}
+
+	if err := r.Delete(ctx, "never-existed"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown id = %v, want ErrNotFound", err)
 	}
 }
 

@@ -259,6 +259,58 @@ func (r *Repo) ListNeedingRotation(ctx context.Context, now time.Time) ([]Creden
 }
 
 // MarkRotated updates last_rotated_at + clears last_rotation_error.
+// ErrAuditRetained is returned by Delete when the credential could only be
+// tombstoned, because credential_audit rows reference it and dropping the
+// "who touched which secret, when" trail to reclaim an identifier is the wrong
+// trade for a security product. The caller should tell the operator that the
+// name stays reserved.
+var ErrAuditRetained = errors.New("credentials: deleted, but the row is retained because it has audit history")
+
+// Delete removes a credential, preferring a hard delete so its id and name
+// become reusable.
+//
+// The id defaults to the NAME (so a workflow can call vault.MustGet("stripe-key")
+// without looking up a random cred_<hex>), which means a surviving row holds
+// BOTH identifiers. Freeing only the name would therefore not let an operator
+// recreate the credential: the primary key still collides.
+//
+// A hard delete is refused by credential_audit's ON DELETE-less foreign key once
+// any audit row exists, so this deletes what it can and falls back to a
+// tombstone, returning ErrAuditRetained to say which happened. The common case
+// this exists for, a create that failed between the row write and the vault put,
+// has NO audit rows yet and so deletes cleanly, which is what makes that
+// previously stuck state recoverable.
+func (r *Repo) Delete(ctx context.Context, id string) error {
+	var exists string
+	err := r.db.QueryRowContext(ctx, r.bind(`SELECT id FROM credentials WHERE id = $1`), id).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("credentials: delete lookup: %w", err)
+	}
+
+	var auditRows int
+	if err := r.db.QueryRowContext(ctx,
+		r.bind(`SELECT COUNT(*) FROM credential_audit WHERE credential_id = $1`), id).Scan(&auditRows); err != nil {
+		return fmt.Errorf("credentials: delete audit probe: %w", err)
+	}
+
+	if auditRows == 0 {
+		if _, err := r.db.ExecContext(ctx, r.bind(`DELETE FROM credentials WHERE id = $1`), id); err != nil {
+			return fmt.Errorf("credentials: delete: %w", err)
+		}
+		return nil
+	}
+
+	now := r.formatTime(time.Now().UTC())
+	const q = `UPDATE credentials SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
+	if _, err := r.db.ExecContext(ctx, r.bind(q), now, now, id); err != nil {
+		return fmt.Errorf("credentials: tombstone: %w", err)
+	}
+	return ErrAuditRetained
+}
+
 // SetRotationTargets replaces a credential's delivery targets.
 //
 // Before this existed, rotation_targets could only be populated by hand-written

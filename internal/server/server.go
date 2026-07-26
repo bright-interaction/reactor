@@ -532,6 +532,9 @@ func (s *Server) mountCredentialOpRoutes(r chi.Router) {
 		r.Post("/credentials/{id}/value", s.credentialUpdateValue)
 	}
 	if s.Credentials != nil {
+		r.Post("/credentials/{id}/delete", s.credentialDelete)
+	}
+	if s.Credentials != nil {
 		// Rotation delivery targets. Without these routes rotation_targets was
 		// settable only by hand-written SQL, so every credential had none and a
 		// rotated value was stored but delivered nowhere.
@@ -1473,6 +1476,11 @@ func credentialDetailBody(c credentials.Credential, rows []credentials.AuditEntr
   <button type="submit" class="btn-primary">Rotate now</button>
   <span class="muted">%s</span>
 </form>`, template.URLQueryEscaper(c.ID), rotateConfirm, template.HTMLEscapeString(rot.hint))
+
+	fmt.Fprintf(&b, `<form method="POST" action="/credentials/%s/delete" class="form-inline" data-confirm="Delete this credential? The secret is removed from the vault and cannot be recovered. The row is kept as a tombstone so the audit trail survives, and the name becomes reusable.">
+  <button type="submit" class="btn-link">Delete credential</button>
+  <span class="muted">refused while any workflow still holds a grant.</span>
+</form>`, template.URLQueryEscaper(c.ID))
 
 	fmt.Fprintf(&b, `<form method="POST" action="/credentials/%s/value" class="form-inline" data-confirm="Overwrite the stored value? Any in-flight workflows holding the old value continue with it; new fetches see the new value.">
   <label>Manual update <input type="password" name="value" required placeholder="new plaintext, encrypted on write" autocomplete="new-password"></label>
