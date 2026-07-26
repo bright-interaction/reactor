@@ -12,14 +12,16 @@ import (
 
 // fakeJournal stubs JournalForBuildRegister.
 type fakeJournal struct {
-	existingSlug string
-	existingID   string
-	createdID    string
-	createdSlug  string
-	createdHash  string
-	createdSDK   string
-	createdDAG   json.RawMessage
-	createErr    error
+	existingSlug   string
+	existingID     string
+	existingTenant string
+	createdID      string
+	createdSlug    string
+	createdHash    string
+	createdSDK     string
+	createdDAG     json.RawMessage
+	createdTenant  string
+	createErr      error
 }
 
 func (f *fakeJournal) WorkflowIDBySlug(_ context.Context, slug string) (string, error) {
@@ -29,7 +31,20 @@ func (f *fakeJournal) WorkflowIDBySlug(_ context.Context, slug string) (string, 
 	return "", errors.New("not found")
 }
 
-func (f *fakeJournal) CreateWorkflow(_ context.Context, id, slug, codeHash, sdkVersion string, dag json.RawMessage) error {
+// WorkflowIDBySlugInTenant models per-tenant slug uniqueness: the same slug in a
+// DIFFERENT tenant must not resolve, which is what makes SkipIfExists correct.
+func (f *fakeJournal) WorkflowIDBySlugInTenant(_ context.Context, slug, tenantID string) (string, error) {
+	if slug == f.existingSlug && tenantID == f.existingTenant {
+		return f.existingID, nil
+	}
+	return "", errors.New("not found")
+}
+
+func (f *fakeJournal) CreateWorkflow(ctx context.Context, id, slug, codeHash, sdkVersion string, dag json.RawMessage) error {
+	return f.CreateWorkflowInTenant(ctx, id, slug, codeHash, sdkVersion, dag, "")
+}
+
+func (f *fakeJournal) CreateWorkflowInTenant(_ context.Context, id, slug, codeHash, sdkVersion string, dag json.RawMessage, tenantID string) error {
 	if f.createErr != nil {
 		return f.createErr
 	}
@@ -38,6 +53,7 @@ func (f *fakeJournal) CreateWorkflow(_ context.Context, id, slug, codeHash, sdkV
 	f.createdHash = codeHash
 	f.createdSDK = sdkVersion
 	f.createdDAG = dag
+	f.createdTenant = tenantID
 	return nil
 }
 
@@ -181,6 +197,73 @@ func TestBuildAndRegisterSourceRejectsBadSlug(t *testing.T) {
 		Slug: "Bad Slug", MainGo: "package main\nfunc main(){}\n", StateRoot: t.TempDir(),
 	}); err == nil {
 		t.Fatal("invalid slug should be rejected")
+	}
+}
+
+// TestBuildAndRegisterSkipsOnlyWithinTheSameTenant pins a bug found by uploading
+// through a running dashboard, not by reading code. SkipIfExists checked the
+// UNSCOPED resolver, so registering a slug into tenant B found tenant A's row,
+// returned A's workflow id and wrote nothing: the upload reported success (303)
+// while the workflow never existed in B. Slugs are unique PER TENANT, so "does
+// some tenant own this slug" is the wrong question.
+func TestBuildAndRegisterSkipsOnlyWithinTheSameTenant(t *testing.T) {
+	t.Parallel()
+
+	// Same tenant: the existing row is reused and nothing is rebuilt.
+	sameTenant := &fakeJournal{existingSlug: "flow", existingID: "wf_existing", existingTenant: "acme"}
+	res, err := BuildAndRegister(context.Background(), sameTenant, BuildAndRegisterRequest{
+		Slug: "flow", SrcDir: writeMiniWorkflow(t, false), StateRoot: t.TempDir(),
+		SkipIfExists: true, TenantID: "acme",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.WorkflowID != "wf_existing" {
+		t.Fatalf("same-tenant re-register should reuse the row, got %q", res.WorkflowID)
+	}
+	if sameTenant.createdID != "" {
+		t.Fatal("same-tenant re-register should not have created a second row")
+	}
+
+	// Different tenant: it must CREATE, not silently hand back the other
+	// tenant's workflow.
+	otherTenant := &fakeJournal{existingSlug: "flow", existingID: "wf_existing", existingTenant: "acme"}
+	res, err = BuildAndRegister(context.Background(), otherTenant, BuildAndRegisterRequest{
+		Slug: "flow", SrcDir: writeMiniWorkflow(t, false), StateRoot: t.TempDir(),
+		SkipIfExists: true, TenantID: "globex",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.WorkflowID == "wf_existing" {
+		t.Fatal("registering into a different tenant returned the OTHER tenant's workflow id")
+	}
+	if otherTenant.createdID == "" {
+		t.Fatal("registering into a different tenant wrote no row, so the upload succeeded with nothing created")
+	}
+	if otherTenant.createdTenant != "globex" {
+		t.Fatalf("row created in tenant %q, want globex", otherTenant.createdTenant)
+	}
+}
+
+// TestCheckAllowedImportsSkipsAppleDoubleSidecars pins a defect that made the
+// dashboard upload path unusable for every macOS operator. A plain `tar czf` on
+// a Mac emits an AppleDouble `._main.go` sidecar next to each file; the walker
+// matched it on the .go suffix and failed the whole upload with "illegal
+// character NUL", surfacing only as an opaque 500. Go itself never compiles a
+// file starting with "." or "_", so skipping matches the compiler's own rule.
+func TestCheckAllowedImportsSkipsAppleDoubleSidecars(t *testing.T) {
+	t.Parallel()
+	dir := writeMiniWorkflow(t, false)
+	// Byte-for-byte the shape that broke it: a NUL-prefixed binary blob.
+	if err := os.WriteFile(filepath.Join(dir, "._main.go"), []byte{0x00, 0x05, 0x16, 0x07, 0x00}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "_ignored.go"), []byte("this is not valid go either"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckAllowedImports(dir); err != nil {
+		t.Fatalf("sidecar files the Go build ignores must not fail the scan: %v", err)
 	}
 }
 

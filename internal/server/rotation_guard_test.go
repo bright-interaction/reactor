@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // stubRotator implements CredentialRotator with programmable capabilities.
@@ -198,6 +199,56 @@ func TestCredentialDetailWarnsBeforeDestructiveRotate(t *testing.T) {
 		rotateView{hint: "rolls the credential at its source", mintsLocally: false})
 	if strings.Contains(safe, "data-confirm=\"Provider") {
 		t.Fatal("a roll-at-source rotation should not nag; confirmations lose meaning if everything has one")
+	}
+}
+
+// TestTenantSelectRendersChoiceOnlyWhenThereIsOne keeps the picker from being
+// noise on a single-tenant install while still submitting explicit ownership.
+func TestTenantSelectRendersChoiceOnlyWhenThereIsOne(t *testing.T) {
+	t.Parallel()
+
+	// One tenant: nothing to choose, but the value is still submitted so the
+	// create path states ownership rather than leaning on a column default.
+	single := tenantSelect([]journal.Tenant{{TenantID: "acme"}}, "acme")
+	if strings.Contains(single, "<select") {
+		t.Fatalf("a single tenant should not render a picker:\n%s", single)
+	}
+	if !strings.Contains(single, `name="tenant_id" value="acme"`) {
+		t.Fatalf("single-tenant form must still submit the owner:\n%s", single)
+	}
+
+	// Two or more: a real picker, defaulted to the viewer's tenant.
+	multi := tenantSelect([]journal.Tenant{{TenantID: "acme"}, {TenantID: "globex"}}, "globex")
+	if !strings.Contains(multi, `<option value="globex" selected>`) {
+		t.Fatalf("picker should preselect the viewer's tenant:\n%s", multi)
+	}
+	if !strings.Contains(multi, `<option value="acme">`) {
+		t.Fatalf("picker missing the other tenant:\n%s", multi)
+	}
+
+	// Empty current falls back to the default tenant rather than an empty owner,
+	// because "" downstream means "global" and would be a scoping hole.
+	empty := tenantSelect(nil, "")
+	if !strings.Contains(empty, `value="`+journal.DefaultTenant+`"`) {
+		t.Fatalf("empty tenant must fall back to %q:\n%s", journal.DefaultTenant, empty)
+	}
+}
+
+// TestWorkflowUploadFormOffersTenant closes the workflow half of tenancy. The
+// writer accepted a tenant before this, but with no selector an admin (who is
+// global, so viewerScope returns "") had no way to say which one, and every
+// upload landed in the default tenant regardless.
+func TestWorkflowUploadFormOffersTenant(t *testing.T) {
+	t.Parallel()
+	html := workflowNewBody("", []journal.Tenant{{TenantID: "acme"}, {TenantID: "globex"}}, "acme")
+	if !strings.Contains(html, `name="tenant_id"`) {
+		t.Fatalf("upload form cannot express ownership:\n%s", html)
+	}
+	if !strings.Contains(html, `<option value="globex">`) {
+		t.Fatal("upload form does not offer every tenant")
+	}
+	if !strings.Contains(html, `enctype="multipart/form-data"`) {
+		t.Fatal("tenant field must live inside the multipart upload form to be submitted with it")
 	}
 }
 

@@ -40,6 +40,11 @@ type BuildAndRegisterRequest struct {
 	// idempotent re-registration; the dashboard upload + codegen
 	// auto-build paths also benefit from it.
 	SkipIfExists bool
+
+	// TenantID owns the resulting workflow. Empty means the journal's default
+	// tenant, which is what the CLI and MCP callers get since neither carries a
+	// tenant context. The dashboard passes the operator's choice.
+	TenantID string
 }
 
 // BuildAndRegisterResult is the output of BuildAndRegister.
@@ -56,7 +61,15 @@ type BuildAndRegisterResult struct {
 // doesn't pull in the full journal API just to expose this helper.
 type JournalForBuildRegister interface {
 	WorkflowIDBySlug(ctx context.Context, slug string) (string, error)
+	// WorkflowIDBySlugInTenant scopes the lookup. Slugs are unique PER TENANT,
+	// so the unscoped form answers "does ANY tenant own this slug", which is the
+	// wrong question for a re-registration check.
+	WorkflowIDBySlugInTenant(ctx context.Context, slug, tenantID string) (string, error)
 	CreateWorkflow(ctx context.Context, id, slug, codeHash, sdkVersion string, dag json.RawMessage) error
+	// CreateWorkflowInTenant is the tenant-aware writer. CreateWorkflow
+	// delegates to it with the default tenant, so both stay on this interface
+	// while callers without a tenant context keep the shorter one.
+	CreateWorkflowInTenant(ctx context.Context, id, slug, codeHash, sdkVersion string, dag json.RawMessage, tenantID string) error
 }
 
 // BuildAndRegister is the canonical "compile a workflow + insert the
@@ -158,7 +171,13 @@ func BuildAndRegister(ctx context.Context, j JournalForBuildRegister, req BuildA
 	}
 
 	if req.SkipIfExists {
-		if existing, err := j.WorkflowIDBySlug(ctx, req.Slug); err == nil && existing != "" {
+		// Scope the "already registered?" check to the TARGET tenant. Using the
+		// unscoped lookup here meant registering a slug into tenant B silently
+		// returned tenant A's workflow id and wrote no row at all, so the upload
+		// reported success (303) while the workflow never existed in B. Slugs
+		// are unique per tenant, so "some tenant owns this slug" is the wrong
+		// question.
+		if existing, err := j.WorkflowIDBySlugInTenant(ctx, req.Slug, req.TenantID); err == nil && existing != "" {
 			res.WorkflowID = existing
 			return res, nil
 		}
@@ -169,7 +188,7 @@ func BuildAndRegister(ctx context.Context, j JournalForBuildRegister, req BuildA
 		return BuildAndRegisterResult{}, fmt.Errorf("build_and_register: id: %w", err)
 	}
 	wfID := "wf_" + hex.EncodeToString(idBytes)
-	if err := j.CreateWorkflow(ctx, wfID, req.Slug, codeHash, req.SDKVersion, dag); err != nil {
+	if err := j.CreateWorkflowInTenant(ctx, wfID, req.Slug, codeHash, req.SDKVersion, dag, req.TenantID); err != nil {
 		return BuildAndRegisterResult{}, fmt.Errorf("build_and_register: create workflow: %w", err)
 	}
 	res.WorkflowID = wfID

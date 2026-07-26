@@ -33,15 +33,16 @@ func (s *stubValidator) Validate(_ context.Context, _, _, _, _ string) error {
 // compiles in a throwaway temp dir, so a save that does not ALSO rebuild leaves
 // the old binary serving every trigger; these counters are what pin that.
 type stubRegistrar struct {
-	calls int
-	slug  string
-	dir   string
-	fail  error
+	calls    int
+	slug     string
+	dir      string
+	tenantID string
+	fail     error
 }
 
-func (s *stubRegistrar) RegisterFromDir(_ context.Context, slug, dir string) (string, error) {
+func (s *stubRegistrar) RegisterFromDir(_ context.Context, slug, dir, tenantID string) (string, error) {
 	s.calls++
-	s.slug, s.dir = slug, dir
+	s.slug, s.dir, s.tenantID = slug, dir, tenantID
 	if s.fail != nil {
 		return "", s.fail
 	}

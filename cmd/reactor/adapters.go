@@ -116,13 +116,14 @@ type workflowRegistrarAdapter struct {
 	log       *slog.Logger
 }
 
-func (a workflowRegistrarAdapter) RegisterFromDir(ctx context.Context, slug, src string) (string, error) {
+func (a workflowRegistrarAdapter) RegisterFromDir(ctx context.Context, slug, src, tenantID string) (string, error) {
 	res, err := codegen.BuildAndRegister(ctx, a.journal, codegen.BuildAndRegisterRequest{
 		Slug:         slug,
 		SrcDir:       src,
 		StateRoot:    a.root,
 		SDKVersion:   "0.1.0",
 		SkipIfExists: true,
+		TenantID:     tenantID,
 	})
 	if err != nil {
 		return "", err

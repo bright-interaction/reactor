@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
 // dlqRetry handles POST /dlq/{id}/retry. Drives the dispatcher's
@@ -121,10 +122,11 @@ func (s *Server) knowledgeSupersede(w http.ResponseWriter, r *http.Request) {
 // workflowNewForm renders the upload-workflow form. Accepts a .tar.gz
 // of a single directory containing main.go + dag.json (optional).
 func (s *Server) workflowNewForm(w http.ResponseWriter, r *http.Request) {
+	tenants, current := s.availableTenants(r)
 	s.renderPage(w, r, page{
 		Title:   "Register workflow",
 		Heading: "Register workflow",
-		Body:    template.HTML(workflowNewBody("")),
+		Body:    template.HTML(workflowNewBody("", tenants, current)),
 	})
 }
 
@@ -139,13 +141,13 @@ func (s *Server) workflowCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	slug := strings.TrimSpace(r.PostFormValue("slug"))
 	if !slugRe.MatchString(slug) {
-		s.workflowNewError(w, "slug must match ^[a-z][a-z0-9-]*$")
+		s.workflowNewError(w, r, "slug must match ^[a-z][a-z0-9-]*$")
 		return
 	}
 
 	file, _, err := r.FormFile("tarball")
 	if err != nil {
-		s.workflowNewError(w, "tarball file required ("+err.Error()+")")
+		s.workflowNewError(w, r, "tarball file required ("+err.Error()+")")
 		return
 	}
 	defer file.Close()
@@ -158,17 +160,24 @@ func (s *Server) workflowCreate(w http.ResponseWriter, r *http.Request) {
 	defer os.RemoveAll(tmp)
 
 	if err := extractTarGz(file, tmp); err != nil {
-		s.workflowNewError(w, "extract: "+err.Error())
+		s.workflowNewError(w, r, "extract: "+err.Error())
 		return
 	}
 
 	src, err := findWorkflowDir(tmp)
 	if err != nil {
-		s.workflowNewError(w, err.Error())
+		s.workflowNewError(w, r, err.Error())
 		return
 	}
 
-	id, err := s.WorkflowRegister.RegisterFromDir(r.Context(), slug, src)
+	// A SCOPED viewer (a member) is forced into their own tenant whatever the
+	// form submits, so a crafted POST cannot plant a workflow in someone else's
+	// tenant; only a global admin may choose.
+	tenantID := strings.TrimSpace(r.PostFormValue("tenant_id"))
+	if scope := viewerScope(r); scope != "" {
+		tenantID = scope
+	}
+	id, err := s.WorkflowRegister.RegisterFromDir(r.Context(), slug, src, tenantID)
 	if err != nil {
 		s.errorPage(w, "register from dir ("+slug+", id="+id+")", err)
 		return
@@ -176,12 +185,13 @@ func (s *Server) workflowCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/workflows/"+slug, http.StatusSeeOther)
 }
 
-func (s *Server) workflowNewError(w http.ResponseWriter, msg string) {
+func (s *Server) workflowNewError(w http.ResponseWriter, r *http.Request, msg string) {
+	tenants, current := s.availableTenants(r)
 	w.WriteHeader(http.StatusUnprocessableEntity)
 	render(w, layout, page{
 		Title:   "Register workflow",
 		Heading: "Register workflow",
-		Body:    template.HTML(workflowNewBody(msg)),
+		Body:    template.HTML(workflowNewBody(msg, tenants, current)),
 	})
 }
 
@@ -268,7 +278,7 @@ func knowledgeNewBody(errMsg string) string {
 }
 
 // workflowNewBody renders the workflow-upload form.
-func workflowNewBody(errMsg string) string {
+func workflowNewBody(errMsg string, tenants []journal.Tenant, currentTenant string) string {
 	var b strings.Builder
 	if errMsg != "" {
 		b.WriteString(`<div class="err">` + template.HTMLEscapeString(errMsg) + `</div>`)
@@ -276,7 +286,8 @@ func workflowNewBody(errMsg string) string {
 	b.WriteString(`<form method="POST" action="/workflows" enctype="multipart/form-data" class="form">
   <p class="muted">Upload a tar.gz containing a single directory with main.go (required) + dag.json (optional). The server extracts, runs go vet + reactor lint + go build, then registers the workflow + builds the binary. Use this when you have Go source on disk and don't want the AI codegen path; for non-devs, the home page Generate form is faster.</p>
   <label>Slug <input type="text" name="slug" required pattern="[a-z][a-z0-9-]*" title="lowercase letters/digits/hyphen, must start with a letter" autocomplete="off"></label>
-  <label>Tarball <input type="file" name="tarball" required accept=".tgz,.tar.gz,application/gzip,application/x-gzip,application/x-tar"></label>
+  <label>Tarball <input type="file" name="tarball" required accept=".tgz,.tar.gz,application/gzip,application/x-gzip,application/x-tar"></label>` +
+		tenantSelect(tenants, currentTenant) + `
   <button type="submit" class="btn-primary">Register</button>
   <a href="/" class="btn-secondary">Cancel</a>
 </form>`)
