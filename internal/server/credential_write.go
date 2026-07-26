@@ -149,6 +149,72 @@ func (s *Server) redirectWithTargetError(w http.ResponseWriter, r *http.Request,
 	http.Redirect(w, r, "/credentials/"+id, http.StatusSeeOther)
 }
 
+// credentialDelete soft-deletes a credential and removes its vault blob.
+//
+// There was no delete route at all, and because `UNIQUE (tenant_id, name)` also
+// covered soft-deleted rows, a name was consumed permanently. Migration 0025
+// scopes that uniqueness to live rows; this is the surface that uses it.
+//
+// The row survives as a tombstone on purpose: credential_audit holds an
+// ON DELETE-less FK to it, and dropping the audit trail to free a name is the
+// wrong trade for a security product.
+func (s *Server) credentialDelete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	// Refuse while workflows still hold a grant. Deleting underneath them would
+	// turn every future secret fetch into a silent runtime failure, which is
+	// exactly the class of "succeeds now, breaks later" this audit kept finding.
+	if s.Journal != nil {
+		if granted := s.workflowsGrantedAccess(r.Context(), id); len(granted) > 0 {
+			s.redirectWithTargetError(w, r, id, fmt.Sprintf(
+				"still granted to %d workflow(s): %s. Revoke those grants first, or their next secret fetch fails at runtime with no warning.",
+				len(granted), strings.Join(granted, ", ")))
+			return
+		}
+	}
+	retained := false
+	if err := s.Credentials.Delete(r.Context(), id); err != nil {
+		switch {
+		case errors.Is(err, credentials.ErrNotFound):
+			http.Error(w, "credential not found", http.StatusNotFound)
+			return
+		case errors.Is(err, credentials.ErrAuditRetained):
+			retained = true
+		default:
+			s.errorPage(w, "delete credential", err)
+			return
+		}
+	}
+	// Drop the secret itself. Best-effort: the row is already tombstoned, so a
+	// vault failure must not leave the operator unable to proceed, but it is
+	// logged because a lingering blob is a real (if inert) secret at rest.
+	if s.Vault != nil {
+		if err := s.Vault.Delete(r.Context(), id); err != nil {
+			s.Log.Warn("credential delete: vault blob remains", "err", err, "credential_id", id)
+		}
+	}
+	// Appending this audit row is itself what forces a credential deleted twice
+	// to stay a tombstone, which is the correct trade: the trail outlives the
+	// secret.
+	_ = s.Credentials.AppendAudit(r.Context(), credentials.AuditEntry{
+		CredentialID: id,
+		Action:       "delete.dashboard",
+		ActorKind:    "operator",
+	})
+	if retained && s.flash != nil {
+		// Say plainly that the identifier is NOT reusable, rather than letting
+		// the operator discover it from a duplicate-key error on the next create.
+		if err := s.flash.put(w, r, map[string]string{"rotate_outcome": fmt.Sprintf(
+			"Deleted %q and removed its secret. The row is kept because it has audit history, so that name stays reserved: reuse it by picking a different name, or accept the tombstone.", id)}); err != nil {
+			s.Log.Warn("credential delete: flash put failed", "err", err, "credential_id", id)
+		}
+	}
+	http.Redirect(w, r, "/credentials", http.StatusSeeOther)
+}
+
 // rotationGuard refuses the two provider/auto-rotate combinations that silently
 // do the wrong thing, returning the operator-facing reason or "" when the
 // combination is sound. Kept separate from the handler so the rule is testable
@@ -240,6 +306,15 @@ func (s *Server) credentialCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Vault.Put(r.Context(), id, []byte(value)); err != nil {
+		// Roll the row back. Without this the create leaves a credential with no
+		// secret that cannot be deleted (credential_audit's FK refuses a hard
+		// delete once any audit row exists) and whose name can never be reused,
+		// a state an operator could only escape with hand-written SQL.
+		// Reproduced on a live instance: a wrong master key is enough to hit it.
+		if derr := s.Credentials.Delete(r.Context(), id); derr != nil {
+			s.Log.Warn("credential create: rollback failed, orphan row remains",
+				"err", derr, "credential_id", id)
+		}
 		s.renderCredentialNewError(w, r, "vault put: "+err.Error(), name, service)
 		return
 	}

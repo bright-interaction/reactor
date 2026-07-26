@@ -186,13 +186,27 @@ func cmdVaultAdd(ctx context.Context, _ *slog.Logger, args []string) error {
 		return err
 	}
 
+	// Everything from here can fail AFTER the credentials row exists, so each
+	// exit rolls it back. Without that the operator is left with a credential
+	// that has no secret, cannot be deleted once it has audit history, and whose
+	// identifier cannot be reused (the id defaults to the name), which is a
+	// state only hand-written SQL could clear. The dashboard path got this
+	// rollback first; the CLI has the same create-then-put ordering and needs it
+	// just as much.
+	rollback := func(cause error) error {
+		if derr := repo.Delete(ctx, *id); derr != nil {
+			return fmt.Errorf("%w (rollback also failed, orphan row %q remains: %v)", cause, *id, derr)
+		}
+		return cause
+	}
+
 	store, vaultCloser, err := openVaultStore(*dbURL, masterHex)
 	if err != nil {
-		return err
+		return rollback(err)
 	}
 	defer vaultCloser()
 	if err := store.Put(ctx, *name, plaintext); err != nil {
-		return fmt.Errorf("vault: put %s: %w", *name, err)
+		return rollback(fmt.Errorf("vault: put %s: %w", *name, err))
 	}
 	// docs/security.md lists `operator` / `reactor vault add` as an audited
 	// actor, and the CLI wrote no audit row at all: the "who touched which
