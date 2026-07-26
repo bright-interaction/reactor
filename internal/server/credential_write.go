@@ -388,7 +388,7 @@ func (s *Server) credentialGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Accept a slug too; resolve to id if the table knows it.
-	if wfID, err := s.Journal.WorkflowIDBySlug(r.Context(), wf); err == nil && wfID != "" {
+	if wfID, err := s.workflowIDForViewer(r, wf); err == nil && wfID != "" {
 		wf = wfID
 	}
 	if err := s.Journal.GrantSecret(r.Context(), wf, id, "dashboard", ""); err != nil {
@@ -413,7 +413,7 @@ func (s *Server) credentialRevoke(w http.ResponseWriter, r *http.Request) {
 	// Mirror credentialGrant: the revoke URL may carry a slug from the
 	// rendered detail page (WorkflowSlugByID resolves wf_id -> slug),
 	// so resolve back to wf_id before the DELETE.
-	if wfID, err := s.Journal.WorkflowIDBySlug(r.Context(), wf); err == nil && wfID != "" {
+	if wfID, err := s.workflowIDForViewer(r, wf); err == nil && wfID != "" {
 		wf = wfID
 	}
 	if err := s.Journal.RevokeSecret(r.Context(), wf, id); err != nil {

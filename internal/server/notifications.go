@@ -132,7 +132,7 @@ func (s *Server) workflowNotificationRouteCreate(w http.ResponseWriter, r *http.
 	if onStatuses == "" {
 		onStatuses = "failed,failed_dlq"
 	}
-	wfID, err := s.Journal.WorkflowIDBySlug(r.Context(), slug)
+	wfID, err := s.workflowIDForViewer(r, slug)
 	if err != nil {
 		if errors.Is(err, journal.ErrNotFound) {
 			http.Error(w, "workflow not registered", http.StatusNotFound)
@@ -155,7 +155,7 @@ func (s *Server) workflowNotificationRouteDelete(w http.ResponseWriter, r *http.
 		return
 	}
 	channelID := chi.URLParam(r, "channel_id")
-	wfID, err := s.Journal.WorkflowIDBySlug(r.Context(), slug)
+	wfID, err := s.workflowIDForViewer(r, slug)
 	if err != nil {
 		s.errorPage(w, "lookup workflow", err)
 		return

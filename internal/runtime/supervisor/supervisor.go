@@ -682,18 +682,34 @@ func DeriveSignalToken(perRunKeyHex, runID, signalName string) string {
 // oauthTenant resolves the run's tenant (to scope an oauth: connection lookup).
 // Returns "" when it can't be established, which the caller treats as deny.
 func (d *dispatcher) oauthTenant(ctx context.Context) string {
-	if d.sup.WorkflowSlug == "" || d.sup.Journal == nil {
-		return ""
-	}
-	wfID, err := d.sup.Journal.WorkflowIDBySlug(ctx, d.sup.WorkflowSlug)
-	if err != nil {
-		return ""
-	}
-	tenant, err := d.sup.Journal.WorkflowTenant(ctx, wfID)
-	if err != nil {
+	_, tenant, ok := d.runIdentity(ctx)
+	if !ok {
 		return ""
 	}
 	return tenant
+}
+
+// runIdentity resolves which workflow this run IS, and whose it is, from the run
+// id. Returns ok=false when it cannot be established, and every caller treats
+// that as deny.
+//
+// This replaced resolving identity from d.sup.WorkflowSlug via the UNSCOPED
+// WorkflowIDBySlug. Slugs are unique only PER TENANT, so once two tenants owned
+// the same slug that lookup ("WHERE slug = $1 ORDER BY created_at DESC LIMIT 1")
+// returned whichever tenant registered it most recently, no matter who was
+// actually executing. The secret ACL was then evaluated against the wrong
+// workflow, so a victim's grant authorised an attacker's run and the plaintext
+// came back; the oauth branch picked the wrong tenant's connections the same way.
+// A run id is unambiguous, and runs.workflow_id is written at enqueue time.
+func (d *dispatcher) runIdentity(ctx context.Context) (workflowID, tenantID string, ok bool) {
+	if d.sup.Journal == nil || d.sup.RunID == "" {
+		return "", "", false
+	}
+	wfID, tenant, err := d.sup.Journal.RunIdentity(ctx, d.sup.RunID)
+	if err != nil || wfID == "" {
+		return "", "", false
+	}
+	return wfID, tenant, true
 }
 
 func (d *dispatcher) handleSecretFetch(ctx context.Context, f wire.Frame) error {
@@ -714,20 +730,30 @@ func (d *dispatcher) handleSecretFetch(ctx context.Context, f wire.Frame) error 
 	// identity means we cannot make a grant decision, and strict-deny is
 	// the safer default. Permissive mode still allows the fetch so the
 	// migration story is unchanged.
+	// Identity comes from the RUN, never from the slug. See runIdentity: the
+	// slug-based lookup crossed tenant boundaries once two tenants could own one
+	// slug, which turned the victim's grant into the attacker's authorisation.
+	runWfID, runTenant, identityOK := d.runIdentity(ctx)
+
 	if !d.sup.ACLPermissive {
-		if d.sup.WorkflowSlug == "" {
-			d.sup.Log.Warn("supervisor: secret access denied (no workflow slug on this supervisor; cannot make a grant decision)",
-				"credential_id", body.ID)
+		if !identityOK {
+			d.sup.Log.Warn("supervisor: secret access denied (cannot establish which workflow this run is; no grant decision is possible)",
+				"run", d.sup.RunID, "workflow", d.sup.WorkflowSlug, "credential_id", body.ID)
 			deny, _ := wire.Wrap(d.nextID(), f.ID, wire.KindSecretReply, wire.SecretReply{NotFound: true})
 			return d.write(deny)
 		}
-		wfID, err := d.sup.Journal.WorkflowIDBySlug(ctx, d.sup.WorkflowSlug)
-		if err != nil {
-			d.sup.Log.Warn("supervisor: secret access denied (workflow lookup failed)",
-				"err", err, "workflow", d.sup.WorkflowSlug, "credential_id", body.ID)
+		// Defence in depth behind the grant check. GrantSecret refuses
+		// cross-tenant grants, but a row written before that guard existed would
+		// still authorise, and Vault.Get has no tenant predicate of its own. An
+		// explicit tenant equality check here means a stale grant cannot leak a
+		// credential across the boundary.
+		if credTenant, cErr := d.sup.Journal.CredentialTenant(ctx, body.ID); cErr != nil || credTenant != runTenant {
+			d.sup.Log.Warn("supervisor: secret access denied (credential belongs to another tenant)",
+				"run_tenant", runTenant, "credential_id", body.ID, "err", cErr)
 			deny, _ := wire.Wrap(d.nextID(), f.ID, wire.KindSecretReply, wire.SecretReply{NotFound: true})
 			return d.write(deny)
 		}
+		wfID := runWfID
 		ok, err := d.sup.Journal.HasGrant(ctx, wfID, body.ID)
 		switch {
 		case errors.Is(err, journal.ErrACLEmpty):
@@ -750,12 +776,13 @@ func (d *dispatcher) handleSecretFetch(ctx context.Context, f wire.Frame) error 
 			deny, _ := wire.Wrap(d.nextID(), f.ID, wire.KindSecretReply, wire.SecretReply{NotFound: true})
 			return d.write(deny)
 		}
-	} else if d.sup.WorkflowSlug != "" {
-		// Permissive mode still emits an audit gate when slug is set:
-		// the path mirrors the strict branch but skips the deny on
-		// ACLEmpty so legacy zero-grant installs continue to function.
-		wfID, err := d.sup.Journal.WorkflowIDBySlug(ctx, d.sup.WorkflowSlug)
-		if err == nil {
+	} else if identityOK {
+		// Permissive mode still emits an audit gate when the run resolves: the
+		// path mirrors the strict branch but skips the deny on ACLEmpty so legacy
+		// zero-grant installs continue to function. It uses the same run-derived
+		// workflow id, so permissive does not mean "resolve across tenants".
+		{
+			wfID := runWfID
 			ok, gErr := d.sup.Journal.HasGrant(ctx, wfID, body.ID)
 			switch {
 			case errors.Is(gErr, journal.ErrACLEmpty):

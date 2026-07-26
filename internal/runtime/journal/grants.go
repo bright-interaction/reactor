@@ -214,3 +214,46 @@ func (j *Journal) ListGrantsForWorkflow(ctx context.Context, workflowID string) 
 	}
 	return out, rows.Err()
 }
+
+// RunIdentity is the authoritative answer to "which workflow is this run, and
+// whose is it". It exists because the supervisor previously answered that
+// question from its WorkflowSlug via the UNSCOPED WorkflowIDBySlug, and slugs
+// are unique only PER TENANT: with two tenants owning one slug, that resolved to
+// whichever tenant registered it most recently and the secret ACL was then
+// evaluated against the wrong workflow. A run id cannot be ambiguous that way.
+//
+// Fails with ErrNotFound rather than an empty string when the run is unknown, so
+// callers cannot mistake "no identity" for "the default tenant".
+func (j *Journal) RunIdentity(ctx context.Context, runID string) (workflowID, tenantID string, err error) {
+	if runID == "" {
+		return "", "", fmt.Errorf("journal: run identity: run id required")
+	}
+	var wf, tenant sql.NullString
+	q := `SELECT r.workflow_id, COALESCE(w.tenant_id, r.tenant_id)
+		FROM runs r LEFT JOIN workflows w ON w.id = r.workflow_id
+		WHERE r.id = $1`
+	switch err := j.db.QueryRowContext(ctx, j.bind(q), runID).Scan(&wf, &tenant); {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", "", ErrNotFound
+	case err != nil:
+		return "", "", fmt.Errorf("journal: run identity: %w", err)
+	}
+	return wf.String, tenant.String, nil
+}
+
+// CredentialTenant returns the owning tenant of a live credential.
+// ErrNotFound for an unknown or soft-deleted id.
+func (j *Journal) CredentialTenant(ctx context.Context, credentialID string) (string, error) {
+	if credentialID == "" {
+		return "", fmt.Errorf("journal: credential tenant: id required")
+	}
+	var tenant sql.NullString
+	const q = `SELECT tenant_id FROM credentials WHERE id = $1 AND deleted_at IS NULL`
+	switch err := j.db.QueryRowContext(ctx, j.bind(q), credentialID).Scan(&tenant); {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", ErrNotFound
+	case err != nil:
+		return "", fmt.Errorf("journal: credential tenant: %w", err)
+	}
+	return tenant.String, nil
+}

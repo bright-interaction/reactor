@@ -47,6 +47,10 @@ type Analytics struct {
 type WorkflowAnalytics struct {
 	WorkflowID                  string
 	Slug                        string
+	// TenantID disambiguates the dashboard link: slugs are unique only per
+	// tenant, so two rows can share a slug and a bare href would send both to
+	// whichever workflow is newest.
+	TenantID                    string
 	SucceededRuns               int
 	FailedRuns                  int
 	AvgDurationMs               int64
@@ -151,6 +155,7 @@ func (j *Journal) workflowAnalytics(ctx context.Context, w Workflow) (WorkflowAn
 	row := WorkflowAnalytics{
 		WorkflowID:                  w.ID,
 		Slug:                        w.Slug,
+		TenantID:                    w.TenantID,
 		EstimatedMinutesSavedPerRun: w.EstimatedMinutesSavedPerRun,
 	}
 	// Count succeeded vs failed-class. failed_dlq counts as failed for
