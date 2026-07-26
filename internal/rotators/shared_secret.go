@@ -20,6 +20,12 @@ type SharedSecretProvider struct{}
 func (p *SharedSecretProvider) Name() string        { return "shared-secret" }
 func (p *SharedSecretProvider) CanAutoRotate() bool { return true }
 
+// MintsValueLocally implements LocalMinter. This provider generates a fresh
+// random secret and stores it; nothing is rolled at any upstream service. Using
+// it on an externally issued API key destroys that key, so the dashboard gates
+// the choice behind an explicit acknowledgement.
+func (p *SharedSecretProvider) MintsValueLocally() bool { return true }
+
 // Rotate generates 32 bytes from crypto/rand and hex-encodes them.
 func (p *SharedSecretProvider) Rotate(_ context.Context, _ string, _ map[string]string) (string, error) {
 	buf := make([]byte, 32)

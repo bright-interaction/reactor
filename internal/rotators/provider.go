@@ -40,6 +40,35 @@ type Provider interface {
 	Validate(ctx context.Context, key string, meta map[string]string) (valid bool, err error)
 }
 
+// LocalMinter is an OPTIONAL Provider capability. Implement it and return true
+// when Rotate mints a brand-new secret LOCALLY instead of rolling the credential
+// at the issuing service.
+//
+// The distinction is the difference between rotation and destruction. Rolling at
+// source (cloudflare, aws-iam) yields a value the service itself issued, so the
+// integration keeps working. Minting locally (shared-secret) is correct only for
+// a secret Reactor is the authority for, such as an HMAC signing key where
+// Reactor controls both ends. Point it at an externally issued API key and it
+// overwrites the real key with a value the service has never seen, the
+// integration breaks silently, and the audit trail records rotate.success.
+//
+// It is an optional interface rather than a Provider method because Provider is
+// a public extension point (Register is documented for runtime extension), so
+// adding a required method would break third-party providers.
+type LocalMinter interface {
+	MintsValueLocally() bool
+}
+
+// MintsValueLocally reports whether rotating this provider REPLACES the stored
+// value with a newly generated secret. Providers that do not implement
+// LocalMinter are assumed to roll at source, which is the safe default for a
+// warning gate: it never blocks a legitimate rotation, it only declines to warn
+// about a provider that has not declared itself destructive.
+func MintsValueLocally(p Provider) bool {
+	lm, ok := p.(LocalMinter)
+	return ok && lm.MintsValueLocally()
+}
+
 // Registry holds all built-in providers. Workflows can extend this at
 // runtime via Register; default registry is populated by init() below.
 var Registry = map[string]Provider{}
