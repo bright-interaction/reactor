@@ -128,85 +128,127 @@ func (p *PipeFlow) Step(ctx context.Context, name string, opts reactor.StepOpts,
 		return nil, errors.New("reactor: step name required")
 	}
 
-	attempt := 1 // host owns retries in week 4+; v0 is single-attempt per call.
-	// Claim this call's ordinal BEFORE any I/O so it reflects program order.
+	// Claim this call's ordinal BEFORE any I/O so it reflects program order. It
+	// stays FIXED across retries; the attempt number is what varies. The
+	// journal key is (run_id, seq, step_name, attempt), so each attempt gets its
+	// own auditable row and the replay lookup still finds the succeeded one.
 	seq := p.nextSeq.Add(1)
-	startID := p.id()
-	startBody := wire.StepStart{
-		StepName:       name,
-		IdempotencyKey: opts.IdempotencyKey,
-		InputHash:      hashOpts(opts),
-		Attempt:        attempt,
-		Seq:            seq,
-	}
-	startFrame, err := wire.Wrap(startID, 0, wire.KindStepStart, startBody)
-	if err != nil {
-		return nil, err
-	}
 
-	replyCh := p.expect(startID)
-	if err := p.write(startFrame); err != nil {
-		p.unexpect(startID)
-		return nil, err
-	}
+	for attempt := 1; ; attempt++ {
+		startID := p.id()
+		startBody := wire.StepStart{
+			StepName:       name,
+			IdempotencyKey: opts.IdempotencyKey,
+			InputHash:      hashOpts(opts),
+			Attempt:        attempt,
+			Seq:            seq,
+		}
+		startFrame, err := wire.Wrap(startID, 0, wire.KindStepStart, startBody)
+		if err != nil {
+			return nil, err
+		}
 
-	var (
-		reply wire.Frame
-		ok    bool
-	)
-	select {
-	case <-ctx.Done():
-		p.unexpect(startID)
-		return nil, ctx.Err()
-	case reply, ok = <-replyCh:
-		if !ok {
-			return nil, ErrPipeClosed
+		replyCh := p.expect(startID)
+		if err := p.write(startFrame); err != nil {
+			p.unexpect(startID)
+			return nil, err
+		}
+
+		var (
+			reply wire.Frame
+			ok    bool
+		)
+		select {
+		case <-ctx.Done():
+			p.unexpect(startID)
+			return nil, ctx.Err()
+		case reply, ok = <-replyCh:
+			if !ok {
+				return nil, ErrPipeClosed
+			}
+		}
+		var sr wire.StepReply
+		if err := wire.Unwrap(reply, &sr); err != nil {
+			return nil, fmt.Errorf("step reply: %w", err)
+		}
+		if sr.Replay {
+			return decodeOutput(sr.Output)
+		}
+
+		// Not replay: actually run the user closure.
+		out, fnErr := safeCall(ctx, fn, opts.Timeout)
+
+		// Decide BEFORE reporting the outcome, because StepEnd.Retryable is how
+		// the host learns whether another attempt is coming. The host treats
+		// Retryable=false as terminal and dead-letters the step, so reporting a
+		// mere classification there (as this used to) dead-lettered a plain
+		// error on its first failure while the configured RetryPolicy was never
+		// consulted at all.
+		delay, willRetry := retryDecision(opts.RetryPolicy, fnErr, attempt)
+
+		endBody := wire.StepEnd{
+			StepName: name,
+			Attempt:  attempt,
+			Seq:      seq,
+			Output:   marshalOutput(out, fnErr),
+		}
+		if fnErr != nil {
+			endBody.ErrorText = fnErr.Error()
+			endBody.Retryable = willRetry
+		}
+		endID := p.id()
+		endFrame, err := wire.Wrap(endID, 0, wire.KindStepEnd, endBody)
+		if err != nil {
+			return nil, err
+		}
+		ackCh := p.expect(endID)
+		if err := p.write(endFrame); err != nil {
+			p.unexpect(endID)
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			p.unexpect(endID)
+			return nil, ctx.Err()
+		case _, ok := <-ackCh:
+			if !ok {
+				return nil, ErrPipeClosed
+			}
+		}
+		if fnErr == nil {
+			return out, nil
+		}
+		if !willRetry {
+			return nil, fnErr
+		}
+		p.log.Warn("step retry",
+			"step", name, "attempt", attempt,
+			"err", fnErr.Error(), "delay_ms", delay.Milliseconds())
+		select {
+		case <-ctx.Done():
+			// A cancelled or deadline-exceeded run must not keep retrying;
+			// surface the step's own error, which is the actionable one.
+			return nil, fnErr
+		case <-time.After(delay):
 		}
 	}
-	var sr wire.StepReply
-	if err := wire.Unwrap(reply, &sr); err != nil {
-		return nil, fmt.Errorf("step reply: %w", err)
-	}
-	if sr.Replay {
-		return decodeOutput(sr.Output)
-	}
+}
 
-	// Not replay: actually run the user closure.
-	out, fnErr := safeCall(ctx, fn, opts.Timeout)
-
-	endBody := wire.StepEnd{
-		StepName: name,
-		Attempt:  attempt,
-		Seq:      seq,
-		Output:   marshalOutput(out, fnErr),
+// retryDecision returns the backoff before the next attempt and whether one
+// should happen. No policy means no retry, which keeps the default single-attempt
+// behaviour for steps that never asked for retries.
+func retryDecision(policy reactor.RetryPolicy, err error, attempt int) (time.Duration, bool) {
+	if err == nil || policy == nil {
+		return 0, false
 	}
-	if fnErr != nil {
-		endBody.ErrorText = fnErr.Error()
-		endBody.Retryable = reactor.IsRetryable(fnErr)
+	// Retry anything the author did not explicitly mark Permanent. This matches
+	// the in-process flow's rule; the previous check (reactor.IsRetryable)
+	// required an explicit Retryable() wrapper, so a plain errors.New never
+	// retried and ExpBackoff{Max: 5} produced exactly one attempt.
+	if reactor.IsPermanent(err) {
+		return 0, false
 	}
-	endID := p.id()
-	endFrame, err := wire.Wrap(endID, 0, wire.KindStepEnd, endBody)
-	if err != nil {
-		return nil, err
-	}
-	ackCh := p.expect(endID)
-	if err := p.write(endFrame); err != nil {
-		p.unexpect(endID)
-		return nil, err
-	}
-	select {
-	case <-ctx.Done():
-		p.unexpect(endID)
-		return nil, ctx.Err()
-	case _, ok := <-ackCh:
-		if !ok {
-			return nil, ErrPipeClosed
-		}
-	}
-	if fnErr != nil {
-		return nil, fnErr
-	}
-	return out, nil
+	return policy.NextDelay(attempt)
 }
 
 // ErrPipeClosed is returned by Step / Sleep / AwaitSignal / FetchSecret

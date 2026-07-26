@@ -171,10 +171,29 @@ func Permanent(err error) error {
 	return permanentError{err: err}
 }
 
-// IsRetryable reports whether the error was wrapped with Retryable, or has
-// no Permanent marker. Default classification: transport-shaped errors are
-// retryable, business logic errors are not. Concrete classification lives
-// in the runtime.
+// IsPermanent reports whether the error was explicitly marked Permanent, i.e.
+// must not be retried whatever the step's RetryPolicy says.
+//
+// This is the predicate the runtime's retry loop uses, and it is deliberately
+// the INVERSE of IsRetryable rather than its complement: a step with a
+// RetryPolicy retries anything the author did not mark Permanent. Requiring an
+// explicit Retryable() wrapper instead (which is what IsRetryable tests) meant a
+// plain errors.New was never retried, so a configured ExpBackoff did nothing and
+// the run dead-lettered on the first failure.
+func IsPermanent(err error) bool {
+	if err == nil {
+		return false
+	}
+	var p permanentError
+	return errors.As(err, &p)
+}
+
+// IsRetryable reports whether the error was explicitly wrapped with Retryable
+// AND not with Permanent. Note this is a strict marker test, not the retry
+// DECISION: the runtime retries anything not marked Permanent when a
+// RetryPolicy is set, so use IsPermanent to reason about whether a retry will
+// happen. (This comment previously claimed "or has no Permanent marker", which
+// the code has never done; the mismatch is why the two flows disagreed.)
 func IsRetryable(err error) bool {
 	if err == nil {
 		return false
