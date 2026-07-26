@@ -527,6 +527,13 @@ func (s *Server) mountCredentialOpRoutes(r chi.Router) {
 	if s.Vault != nil && s.Credentials != nil {
 		r.Post("/credentials/{id}/value", s.credentialUpdateValue)
 	}
+	if s.Credentials != nil {
+		// Rotation delivery targets. Without these routes rotation_targets was
+		// settable only by hand-written SQL, so every credential had none and a
+		// rotated value was stored but delivered nowhere.
+		r.Post("/credentials/{id}/targets", s.credentialTargetAdd)
+		r.Post("/credentials/{id}/targets/{index}/delete", s.credentialTargetDelete)
+	}
 }
 
 func (s *Server) mountWorkflowEditRoutes(r chi.Router) {
@@ -1340,6 +1347,80 @@ func grantedWorkflowsCell(slugs []string) string {
 	return strings.Join(parts, ", ")
 }
 
+// rotationTargetsSection renders where a rotated value gets delivered, and the
+// form to add one. Rotation's differentiator is that consumers pick up the new
+// value without a restart, and this was previously invisible AND unreachable:
+// rotation_targets had no setter, no caller and no UI, so every credential had
+// zero targets and rotation delivered nowhere while reporting success. An empty
+// list now says so in as many words instead of rendering nothing at all.
+func rotationTargetsSection(c credentials.Credential) string {
+	var b strings.Builder
+	b.WriteString(`<h2>Rotation delivery targets</h2>`)
+	if len(c.RotationTargets) == 0 {
+		b.WriteString(`<p class="notice">No delivery targets. A rotation will store the new value in the vault and deliver it nowhere, so anything already holding the old value keeps using it. Add a target below.</p>`)
+	} else {
+		b.WriteString(`<table><thead><tr><th>Kind</th><th>URL / path</th><th>Key name</th><th>Auth secret</th><th>Grace</th><th></th></tr></thead><tbody>`)
+		for i, t := range c.RotationTargets {
+			keyName := t.KeyName
+			if keyName == "" {
+				keyName = "-"
+			}
+			secretID := t.SecretID
+			if secretID == "" {
+				secretID = "-"
+			}
+			fmt.Fprintf(&b, `<tr><td><code>%s</code></td><td><code>%s</code></td><td><code>%s</code></td><td><code>%s</code></td><td>%ds</td><td>`+
+				`<form method="POST" action="/credentials/%s/targets/%d/delete" class="form-inline" data-confirm="Remove this %s target? Future rotations will stop delivering to it.">`+
+				`<button type="submit" class="btn-link">remove</button></form></td></tr>`,
+				template.HTMLEscapeString(t.Kind), template.HTMLEscapeString(t.URL),
+				template.HTMLEscapeString(keyName), template.HTMLEscapeString(secretID),
+				t.GraceSeconds, template.URLQueryEscaper(c.ID), i, template.HTMLEscapeString(t.Kind))
+		}
+		b.WriteString(`</tbody></table>`)
+		b.WriteString(`<p class="muted">Per-target delivery results are recorded in the audit trail below as <code>rotate.delivery_success</code> / <code>rotate.delivery_failure</code>.</p>`)
+	}
+
+	// One form covers every kind: the Target shape is uniform and only the
+	// meaning of URL / key name changes, which the per-kind help text states.
+	fmt.Fprintf(&b, `<form method="POST" action="/credentials/%s/targets" class="form">
+  <label>Kind
+    <select name="kind" required data-reveal-prefix="target-help-">`, template.URLQueryEscaper(c.ID))
+	for _, k := range credentials.TargetKinds {
+		fmt.Fprintf(&b, `<option value="%s">%s</option>`,
+			template.HTMLEscapeString(k.Kind), template.HTMLEscapeString(k.Label))
+	}
+	b.WriteString(`</select>
+  </label>`)
+	for _, k := range credentials.TargetKinds {
+		need := "URL required."
+		if k.NeedsKeyName {
+			need += " Key name required."
+		}
+		if k.NeedsSecretID {
+			need += " Auth secret required."
+		}
+		fmt.Fprintf(&b, `<p id="target-help-%s" class="js-reveal-target muted" hidden>%s <strong>URL:</strong> %s%s</p>`,
+			template.HTMLEscapeString(k.Kind), template.HTMLEscapeString(need),
+			template.HTMLEscapeString(k.URLHint),
+			keyNameHintHTML(k.KeyNameHint))
+	}
+	b.WriteString(`
+  <label>URL / path <input type="text" name="url" required autocomplete="off" placeholder="see the note above for this kind"></label>
+  <label>Key name <input type="text" name="key_name" autocomplete="off" placeholder="required for most kinds"></label>
+  <label>Auth secret (vault credential id) <input type="text" name="secret_id" autocomplete="off" placeholder="cred_... holding the HMAC secret or API token for this target"></label>
+  <label>Grace seconds <input type="number" name="grace_seconds" min="0" value="0"></label>
+  <button type="submit">Add target</button>
+</form>`)
+	return b.String()
+}
+
+func keyNameHintHTML(hint string) string {
+	if hint == "" {
+		return ""
+	}
+	return " <strong>Key name:</strong> " + template.HTMLEscapeString(hint)
+}
+
 // rotateView carries the precomputed, provider-specific rotation copy so the
 // body stays a pure renderer and the server package keeps its narrow-interface
 // boundary to internal/rotators.
@@ -1371,6 +1452,8 @@ func credentialDetailBody(c credentials.Credential, rows []credentials.AuditEntr
 		grantedWorkflowsCell(grantedWorkflows),
 		template.HTMLEscapeString(c.LastRotationError),
 	)
+
+	b.WriteString(rotationTargetsSection(c))
 
 	b.WriteString(`<h2>Actions</h2>`)
 	// A value-replacing provider (shared-secret) discards the stored secret and

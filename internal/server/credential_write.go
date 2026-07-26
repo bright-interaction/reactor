@@ -50,6 +50,104 @@ func (s *Server) credentialNewForm(w http.ResponseWriter, r *http.Request) {
 // form-urlencoded with the same fields as `reactor vault add`. On success
 // the row + encrypted vault blob land atomically; the dashboard redirects
 // to the detail page.
+// credentialTargetAdd appends a rotation delivery target.
+//
+// Rotation's whole point is that consumers get the new value without a restart,
+// and rotation_targets was reachable ONLY through hand-written SQL: no repo
+// setter, no caller, no UI, no CLI flag. Every credential an operator could
+// create therefore had zero targets, so a rotated value was stored and delivered
+// nowhere while the audit trail recorded success.
+func (s *Server) credentialTargetAdd(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	c, err := s.Credentials.Get(r.Context(), id)
+	if err != nil {
+		s.errorPage(w, "get credential", err)
+		return
+	}
+	grace := 0
+	if v := strings.TrimSpace(r.PostFormValue("grace_seconds")); v != "" {
+		n, cerr := strconv.Atoi(v)
+		if cerr != nil || n < 0 {
+			s.redirectWithTargetError(w, r, id, "grace seconds must be a non-negative whole number")
+			return
+		}
+		grace = n
+	}
+	t := credentials.Target{
+		Kind:         strings.TrimSpace(r.PostFormValue("kind")),
+		URL:          strings.TrimSpace(r.PostFormValue("url")),
+		KeyName:      strings.TrimSpace(r.PostFormValue("key_name")),
+		SecretID:     strings.TrimSpace(r.PostFormValue("secret_id")),
+		GraceSeconds: grace,
+	}
+	// Validate here rather than at rotation time, which would surface hours
+	// later inside a scheduler tick nobody is watching.
+	if verr := t.Validate(); verr != nil {
+		s.redirectWithTargetError(w, r, id, verr.Error())
+		return
+	}
+	if serr := s.Credentials.SetRotationTargets(r.Context(), id, append(c.RotationTargets, t)); serr != nil {
+		s.redirectWithTargetError(w, r, id, serr.Error())
+		return
+	}
+	_ = s.Credentials.AppendAudit(r.Context(), credentials.AuditEntry{
+		CredentialID: id,
+		Action:       "target.add",
+		ActorKind:    "operator",
+	})
+	s.redirectWithTargetError(w, r, id, "")
+}
+
+// credentialTargetDelete removes one target by its position in the list.
+func (s *Server) credentialTargetDelete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	idx, err := strconv.Atoi(chi.URLParam(r, "index"))
+	if id == "" || err != nil || idx < 0 {
+		http.Error(w, "missing id or index", http.StatusBadRequest)
+		return
+	}
+	c, gerr := s.Credentials.Get(r.Context(), id)
+	if gerr != nil {
+		s.errorPage(w, "get credential", gerr)
+		return
+	}
+	if idx >= len(c.RotationTargets) {
+		s.redirectWithTargetError(w, r, id, "that target no longer exists; the list may have changed since the page was loaded")
+		return
+	}
+	remaining := append(append([]credentials.Target{}, c.RotationTargets[:idx]...), c.RotationTargets[idx+1:]...)
+	if serr := s.Credentials.SetRotationTargets(r.Context(), id, remaining); serr != nil {
+		s.redirectWithTargetError(w, r, id, serr.Error())
+		return
+	}
+	_ = s.Credentials.AppendAudit(r.Context(), credentials.AuditEntry{
+		CredentialID: id,
+		Action:       "target.remove",
+		ActorKind:    "operator",
+	})
+	s.redirectWithTargetError(w, r, id, "")
+}
+
+// redirectWithTargetError carries a message back to the detail page through the
+// flash store. A bare 303 with no message is how "Rotate now" managed to look
+// identical whether it worked or did nothing.
+func (s *Server) redirectWithTargetError(w http.ResponseWriter, r *http.Request, id, msg string) {
+	if msg != "" && s.flash != nil {
+		if err := s.flash.put(w, r, map[string]string{"rotate_outcome": msg}); err != nil {
+			s.Log.Warn("target: flash put failed", "err", err, "credential_id", id)
+		}
+	}
+	http.Redirect(w, r, "/credentials/"+id, http.StatusSeeOther)
+}
+
 // rotationGuard refuses the two provider/auto-rotate combinations that silently
 // do the wrong thing, returning the operator-facing reason or "" when the
 // combination is sound. Kept separate from the handler so the rule is testable

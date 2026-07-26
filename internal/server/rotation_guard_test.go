@@ -201,6 +201,83 @@ func TestCredentialDetailWarnsBeforeDestructiveRotate(t *testing.T) {
 	}
 }
 
+// TestRotationTargetsSectionEmptyState makes the gap legible instead of silent.
+// Rotation's differentiator is that consumers pick up the new value without a
+// restart; with no targets the value is stored and delivered nowhere, and the
+// page used to render nothing at all about that.
+func TestRotationTargetsSectionEmptyState(t *testing.T) {
+	t.Parallel()
+	html := rotationTargetsSection(credentials.Credential{ID: "c1", Name: "c1"})
+
+	if !strings.Contains(html, "deliver it nowhere") {
+		t.Fatalf("empty state must say a rotation would deliver nowhere, got:\n%s", html)
+	}
+	if !strings.Contains(html, `action="/credentials/c1/targets"`) {
+		t.Fatal("no add-target form: targets would remain reachable only by hand-written SQL")
+	}
+	// Every implemented delivery kind must be offerable.
+	for _, k := range credentials.TargetKinds {
+		if !strings.Contains(html, `<option value="`+k.Kind+`"`) {
+			t.Fatalf("kind %q is not offered by the add form", k.Kind)
+		}
+	}
+	// The per-kind help uses the same delegated reveal as the channel form, so
+	// it must carry the attributes /assets/ui.js looks for.
+	if !strings.Contains(html, `data-reveal-prefix="target-help-"`) {
+		t.Fatal("kind select is missing data-reveal-prefix, so the per-kind help never reveals")
+	}
+	if got := strings.Count(html, "js-reveal-target"); got != len(credentials.TargetKinds) {
+		t.Fatalf("js-reveal-target count = %d, want %d (one help block per kind)", got, len(credentials.TargetKinds))
+	}
+}
+
+// TestRotationTargetsSectionListsTargets covers the populated state, including
+// the confirmation on removal (silently dropping a delivery target means a
+// future rotation quietly stops reaching a consumer).
+func TestRotationTargetsSectionListsTargets(t *testing.T) {
+	t.Parallel()
+	c := credentials.Credential{
+		ID:   "c1",
+		Name: "c1",
+		RotationTargets: []credentials.Target{
+			{Kind: "webhook", URL: "https://a/hook", KeyName: "API_KEY", SecretID: "cred_hmac", GraceSeconds: 30},
+		},
+	}
+	html := rotationTargetsSection(c)
+
+	if strings.Contains(html, "deliver it nowhere") {
+		t.Fatal("empty-state warning shown despite a configured target")
+	}
+	for _, want := range []string{"webhook", "https://a/hook", "API_KEY", "cred_hmac", "30s"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("target row missing %q:\n%s", want, html)
+		}
+	}
+	if !strings.Contains(html, `action="/credentials/c1/targets/0/delete"`) {
+		t.Fatal("no remove control for the target")
+	}
+	if !strings.Contains(html, "data-confirm=") {
+		t.Fatal("removing a delivery target should be confirmed")
+	}
+	if !strings.Contains(html, "rotate.delivery_success") {
+		t.Fatal("operators need a pointer to where per-target delivery results are recorded")
+	}
+}
+
+// TestRotationTargetsSectionEscapes keeps an operator-supplied URL from breaking
+// out of the attributes it lands in.
+func TestRotationTargetsSectionEscapes(t *testing.T) {
+	t.Parallel()
+	c := credentials.Credential{
+		ID:              "c1",
+		RotationTargets: []credentials.Target{{Kind: `w"><img src=x onerror=alert(1)>`, URL: "https://a"}},
+	}
+	html := rotationTargetsSection(c)
+	if strings.Contains(html, `<img src=x`) {
+		t.Fatalf("target kind broke out of its context:\n%s", html)
+	}
+}
+
 // TestCredentialDetailShowsRotateOutcome pins the flash. "Rotate now" used to
 // 303 back with NO message, so on its most common configuration (manual, which
 // the preset script selects for every catalog API-key service) the product's

@@ -85,12 +85,15 @@ func Deliver(ctx context.Context, target credentials.Target, oldValue, newValue 
 	// regardless of which fields are filled. The kind dictates which
 	// fields are required, so checking fields against an unknown kind
 	// is meaningless.
+	// One validator shared with the dashboard's target form
+	// (credentials.Target.Validate), so the fields the UI demands and the fields
+	// delivery requires cannot drift apart.
+	if err := target.Validate(); err != nil {
+		res.Error = err.Error()
+		return res
+	}
 	switch target.Kind {
 	case "webhook", "reload_endpoint":
-		if target.URL == "" || target.KeyName == "" || target.SecretID == "" {
-			res.Error = "target missing url, key_name, or secret_id"
-			return res
-		}
 		hmacSecret, err := vaultStore.Get(ctx, target.SecretID)
 		if err != nil {
 			res.Error = "vault: " + err.Error()
@@ -101,16 +104,8 @@ func Deliver(ctx context.Context, target credentials.Target, oldValue, newValue 
 		}
 		return deliverReloadEndpoint(ctx, target, oldValue, newValue, hmacSecret.Reveal())
 	case "file_write":
-		if target.URL == "" {
-			res.Error = "file_write target missing url (file path)"
-			return res
-		}
 		return deliverFileWrite(target, newValue)
 	case "forgejo_secret":
-		if target.URL == "" || target.KeyName == "" || target.SecretID == "" {
-			res.Error = "forgejo_secret target missing url, key_name (secret name), or secret_id (API token)"
-			return res
-		}
 		token, err := vaultStore.Get(ctx, target.SecretID)
 		if err != nil {
 			res.Error = "vault: " + err.Error()
@@ -118,10 +113,6 @@ func Deliver(ctx context.Context, target credentials.Target, oldValue, newValue 
 		}
 		return deliverForgejoSecret(ctx, target, newValue, string(token.Reveal()))
 	case "github_secret":
-		if target.URL == "" || target.KeyName == "" || target.SecretID == "" {
-			res.Error = "github_secret target missing url (repo API base), key_name (secret name), or secret_id (PAT)"
-			return res
-		}
 		token, err := vaultStore.Get(ctx, target.SecretID)
 		if err != nil {
 			res.Error = "vault: " + err.Error()
@@ -129,10 +120,6 @@ func Deliver(ctx context.Context, target credentials.Target, oldValue, newValue 
 		}
 		return deliverGitHubSecret(ctx, target, newValue, string(token.Reveal()))
 	case "dockyard_vault":
-		if target.URL == "" || target.SecretID == "" {
-			res.Error = "dockyard_vault target missing url (entry endpoint) or secret_id (API token)"
-			return res
-		}
 		token, err := vaultStore.Get(ctx, target.SecretID)
 		if err != nil {
 			res.Error = "vault: " + err.Error()
