@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -174,6 +175,50 @@ func TestNotificationChannelsAreTenantScoped(t *testing.T) {
 	}
 	if len(def) != 1 || def[0].Name != "legacy" {
 		t.Fatalf("default tenant = %+v, want only legacy", def)
+	}
+}
+
+// TestChannelNameIsUniquePerTenantNotGlobally covers the half of the channel
+// tenancy work that 0026 deliberately left alone. Adding tenant_id scoped the
+// READS, but `name TEXT NOT NULL UNIQUE` still made the namespace global: two
+// tenants could not both own "ops-slack", and because a create failed loudly on
+// a name someone else held, it was a cross-tenant existence oracle. 0027 narrows
+// it to (tenant_id, name).
+func TestChannelNameIsUniquePerTenantNotGlobally(t *testing.T) {
+	t.Parallel()
+	j, cleanup := newTestJournal(t)
+	defer cleanup()
+	ctx := context.Background()
+	cfg := json.RawMessage(`{"url":"https://hooks.slack.com/x"}`)
+
+	if _, err := j.CreateNotificationChannelInTenant(ctx, "acme", "ops-slack", ChannelKindSlackWebhook, cfg); err != nil {
+		t.Fatal(err)
+	}
+	// The whole point: the same name in another tenant is not a conflict, and
+	// therefore reveals nothing about what acme owns.
+	if _, err := j.CreateNotificationChannelInTenant(ctx, "globex", "ops-slack", ChannelKindSlackWebhook, cfg); err != nil {
+		t.Fatalf("globex must be able to own the same channel name as acme: %v", err)
+	}
+	// Still unique inside a tenant, so the constraint was narrowed, not dropped.
+	_, err := j.CreateNotificationChannelInTenant(ctx, "acme", "ops-slack", ChannelKindSlackWebhook, cfg)
+	if !errors.Is(err, ErrChannelNameTaken) {
+		t.Fatalf("duplicate within one tenant returned %v, want ErrChannelNameTaken", err)
+	}
+	// The sentinel must not carry the driver text: the handler renders this and a
+	// raw constraint error leaks the schema.
+	if strings.Contains(strings.ToLower(err.Error()), "constraint") {
+		t.Fatalf("ErrChannelNameTaken leaks driver detail: %v", err)
+	}
+
+	// Both rows exist and each tenant sees only its own.
+	for tenant := range map[string]bool{"acme": true, "globex": true} {
+		list, lerr := j.ListNotificationChannelsByTenant(ctx, tenant)
+		if lerr != nil {
+			t.Fatal(lerr)
+		}
+		if len(list) != 1 || list[0].Name != "ops-slack" || list[0].TenantID != tenant {
+			t.Fatalf("%s sees %+v, want exactly its own ops-slack", tenant, list)
+		}
 	}
 }
 

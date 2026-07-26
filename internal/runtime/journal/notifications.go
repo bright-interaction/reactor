@@ -44,9 +44,17 @@ type WorkflowNotificationRoute struct {
 // channel. Operator-side message: detach the routes first.
 var ErrChannelInUse = errors.New("journal: notification channel has active routes")
 
+// ErrChannelNameTaken means the tenant already owns a channel by that name.
+// It is scoped per tenant (migration 0027), so this can only ever be a
+// collision inside the caller's own tenant. It exists so the handler can render
+// something an operator can act on instead of the raw driver text: reporting
+// "UNIQUE constraint failed: notification_channels.tenant_id, ..." to a browser
+// both leaks schema and tells the user nothing about what to do.
+var ErrChannelNameTaken = errors.New("journal: a notification channel with that name already exists")
+
 // CreateNotificationChannel inserts a row + returns the generated id.
-// name has a UNIQUE constraint so a re-create with the same name will
-// surface a sqlite/postgres constraint error.
+// (tenant_id, name) is UNIQUE, so re-creating the same name within one tenant
+// returns ErrChannelNameTaken while a different tenant may reuse it freely.
 func (j *Journal) CreateNotificationChannel(ctx context.Context, name, kind string, config json.RawMessage) (string, error) {
 	id, err := newID("nch_")
 	if err != nil {
@@ -91,9 +99,23 @@ func (j *Journal) createChannel(ctx context.Context, id, tenantID, name, kind st
 	const q = `INSERT INTO notification_channels (id, tenant_id, name, kind, config_json) VALUES ($1, $2, $3, $4, $5)`
 	cfg := outputArg(config, j.engine)
 	if _, err := j.db.ExecContext(ctx, j.bind(q), id, tenantID, name, kind, cfg); err != nil {
+		if isUniqueViolation(err) {
+			return "", ErrChannelNameTaken
+		}
 		return "", fmt.Errorf("journal: create notification channel: %w", err)
 	}
 	return id, nil
+}
+
+// isUniqueViolation probes a driver error for a uniqueness conflict. sqlite says
+// "UNIQUE constraint failed", postgres says "duplicate key value violates unique
+// constraint", so sniff both rather than binding to either driver's error type.
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
 }
 
 func validChannelKind(kind string) bool {

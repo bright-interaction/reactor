@@ -127,6 +127,18 @@ func sqliteDSNWithPragmas(dsn string) string {
 
 // Up applies all pending migrations against the given URL.
 func Up(ctx context.Context, log *slog.Logger, rawURL string) error {
+	return upTo(ctx, log, rawURL, maxVersion)
+}
+
+// maxVersion is goose's "apply everything" sentinel, the same value its own
+// Up uses internally.
+const maxVersion int64 = int64(^uint64(0) >> 1)
+
+// upTo applies migrations up to and including version. Tests use it to stage a
+// database at an intermediate revision, populate it, and then step forward, which
+// is the only way to prove a table-rebuild migration preserves existing rows: a
+// from-scratch schema has nothing to lose.
+func upTo(ctx context.Context, log *slog.Logger, rawURL string, version int64) error {
 	db, engine, err := Open(rawURL)
 	if err != nil {
 		return err
@@ -151,7 +163,7 @@ func Up(ctx context.Context, log *slog.Logger, rawURL string) error {
 	if err := goose.SetDialect(dialect); err != nil {
 		return fmt.Errorf("set dialect: %w", err)
 	}
-	return goose.UpContext(ctx, db, ".")
+	return goose.UpToContext(ctx, db, ".", version)
 }
 
 // gooseSlogAdapter bridges goose's stdlib-style logger interface to slog.
