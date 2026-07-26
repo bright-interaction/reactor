@@ -50,6 +50,33 @@ func (s *Server) credentialNewForm(w http.ResponseWriter, r *http.Request) {
 // form-urlencoded with the same fields as `reactor vault add`. On success
 // the row + encrypted vault blob land atomically; the dashboard redirects
 // to the detail page.
+// rotationGuard refuses the two provider/auto-rotate combinations that silently
+// do the wrong thing, returning the operator-facing reason or "" when the
+// combination is sound. Kept separate from the handler so the rule is testable
+// without an HTTP request or a wired repo.
+//
+// The first is destruction, not a mismatch: shared-secret used to be the FIRST
+// <option> and therefore the default, and it MINTS a new random value locally.
+// An operator adding a real Stripe key with the select untouched, then clicking
+// "Rotate now", had the sk_live_ key overwritten with random hex while the audit
+// trail recorded rotate.success and Stripe still held the old key. Payments
+// break silently and the original is unrecoverable.
+func (s *Server) rotationGuard(provider string, autoRotate, ackReplace bool) string {
+	if s.Rotator == nil {
+		return ""
+	}
+	canAuto, mintsLocally, err := s.Rotator.ProviderCapabilities(provider)
+	switch {
+	case err != nil:
+		return "unknown provider " + provider
+	case mintsLocally && !ackReplace:
+		return "provider \"" + provider + "\" REPLACES the stored value with a newly generated random secret on every rotation. That is correct only for a secret Reactor itself issues (an HMAC signing key where Reactor controls both ends). For a key issued by another service it would overwrite the real key with a value that service has never seen, and the integration would break with no warning. Choose \"manual\" for an externally issued key, or tick the acknowledgement to proceed."
+	case autoRotate && !canAuto:
+		return "provider \"" + provider + "\" cannot rotate automatically, so Auto-rotate would only ever record a reminder and the value would never change. Untick Auto-rotate, or pick a provider that rolls the credential at its source."
+	}
+	return ""
+}
+
 func (s *Server) credentialCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form: "+err.Error(), http.StatusBadRequest)
@@ -74,6 +101,19 @@ func (s *Server) credentialCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		intervalDays = n
+	}
+
+	// Guard the two combinations that silently do the wrong thing.
+	//
+	// The default used to be shared-secret purely because it was the first
+	// <option>, and it MINTS a new random value locally. An operator adding a
+	// Stripe key with the select untouched, then clicking "Rotate now", had the
+	// real sk_live_ key overwritten with random hex while the audit trail
+	// recorded rotate.success and Stripe still held the old key. Payments break
+	// silently, and there is no way back because the original is gone.
+	if reason := s.rotationGuard(provider, autoRotate, r.PostFormValue("confirm_replace") == "on"); reason != "" {
+		s.renderCredentialNewError(w, reason, name, service)
+		return
 	}
 
 	id := name
@@ -120,9 +160,28 @@ func (s *Server) credentialRotate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
+	// Resolve the provider BEFORE rotating so the outcome can be reported. A
+	// reminder-only provider (manual, which service-presets.js selects for every
+	// catalog API-key service) makes RotateOne write an audit row and return
+	// nil, and this handler used to 303 straight back with NO message at all.
+	// So the product's headline button did nothing observable on its most common
+	// configuration, and an operator could not tell that from a real rotation.
+	var outcome string
+	if c, cerr := s.Credentials.Get(r.Context(), id); cerr == nil {
+		if canAuto, _, perr := s.Rotator.ProviderCapabilities(c.Provider); perr == nil && !canAuto {
+			outcome = "Recorded a rotation reminder. Provider \"" + c.Provider +
+				"\" cannot roll this credential programmatically, so the stored value is unchanged: rotate it at the issuing service, then paste the new value into \"Update value\" below."
+		}
+	}
 	if err := s.Rotator.RotateOne(r.Context(), id); err != nil {
 		s.errorPage(w, "rotate", err)
 		return
+	}
+	if outcome == "" {
+		outcome = "Rotation ran. Check the audit trail below for the delivery result of each target; a credential with no rotation targets is stored but delivered nowhere."
+	}
+	if err := s.flash.put(w, r, map[string]string{"rotate_outcome": outcome}); err != nil {
+		s.Log.Warn("rotate: flash put failed", "err", err, "credential_id", id)
 	}
 	http.Redirect(w, r, "/credentials/"+id, http.StatusSeeOther)
 }
@@ -218,13 +277,14 @@ func credentialNewBody(errMsg, _ string) string {
   <label>Service <input type="text" name="service" placeholder="e.g. stripe, sendgrid" autocomplete="off"></label>
   <label>Provider
     <select name="provider" required>
-      <option value="shared-secret">shared-secret (random 32-byte HMAC key)</option>
-      <option value="cloudflare">cloudflare (rolls token in place)</option>
-      <option value="aws-iam">aws-iam (self-rotating IAM access key pair)</option>
-      <option value="manual">manual (no auto-rotate, audit reminder only)</option>
+      <option value="manual">manual -- Reactor never changes the value; rotating records a reminder only. Correct for every externally issued API key (Stripe, Slack, SendGrid, ...)</option>
+      <option value="cloudflare">cloudflare -- rolls the token AT Cloudflare and stores the new one</option>
+      <option value="aws-iam">aws-iam -- rolls the access key pair AT AWS and stores the new one</option>
+      <option value="shared-secret">shared-secret -- REPLACES the value with a new random secret. Only for a secret Reactor itself issues, e.g. an HMAC signing key</option>
     </select>
   </label>
   <label>Value <input type="password" name="value" required autocomplete="new-password" placeholder="initial plaintext, encrypted on write"></label>
+  <label class="inline"><input type="checkbox" name="confirm_replace"> I understand <code>shared-secret</code> replaces the stored value with a newly generated random secret (only needed for that provider)</label>
   <label class="inline"><input type="checkbox" name="auto_rotate"> Auto-rotate</label>
   <label>Rotation interval (days, 0 = no schedule) <input type="number" name="interval_days" min="0" value="0"></label>
   <button type="submit">Create</button>

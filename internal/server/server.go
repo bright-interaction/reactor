@@ -243,6 +243,18 @@ type WorkflowGenerator interface {
 // deployments).
 type CredentialRotator interface {
 	RotateOne(ctx context.Context, credentialID string) error
+
+	// ProviderCapabilities describes what rotating a given provider will
+	// actually do, so the dashboard can say so before the click instead of only
+	// in the audit trail afterwards. canAutoRotate=false means rotation records
+	// a reminder and leaves the value untouched. mintsValueLocally=true means
+	// rotation DISCARDS the stored secret and generates a new random one, which
+	// on an externally issued key is destruction rather than rotation.
+	//
+	// Exposed through this interface rather than by importing internal/rotators
+	// so read-only deployments still avoid the AWS SigV4 + sealed-box
+	// dependencies (the reason this interface exists at all).
+	ProviderCapabilities(provider string) (canAutoRotate, mintsValueLocally bool, err error)
 }
 
 // DLQRetrier is the dashboard's "Retry from DLQ" button surface. The
@@ -932,11 +944,36 @@ func (s *Server) credentialDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, _ := s.Credentials.ListAudit(r.Context(), id, 100)
 	grantedWorkflows := s.workflowsGrantedAccess(r.Context(), id)
+	var flash string
+	if s.flash != nil {
+		flash = s.flash.take(w, r)["rotate_outcome"]
+	}
+	hint, mintsLocally := s.rotateHint(c.Provider)
 	s.renderPage(w, r, page{
 		Title:   "Credential " + c.Name,
 		Heading: "Credential " + c.Name,
-		Body:    template.HTML(credentialDetailBody(c, rows, grantedWorkflows)),
+		Body: template.HTML(credentialDetailBody(c, rows, grantedWorkflows, flash,
+			rotateView{hint: hint, mintsLocally: mintsLocally})),
 	})
+}
+
+// rotateHint states what "Rotate now" will actually do for this provider, so the
+// effect is legible BEFORE the click rather than only in the audit trail after.
+func (s *Server) rotateHint(provider string) (hint string, mintsLocally bool) {
+	if s.Rotator == nil {
+		return "rotation is not wired in this build.", false
+	}
+	canAuto, mintsLocal, err := s.Rotator.ProviderCapabilities(provider)
+	switch {
+	case err != nil:
+		return "unknown provider: rotation will fail.", false
+	case !canAuto:
+		return "records a reminder only: this provider cannot roll the credential, so the stored value will NOT change.", false
+	case mintsLocal:
+		return "generates a NEW RANDOM secret and replaces the stored value; correct only for a secret Reactor itself issues.", true
+	default:
+		return "rolls the credential at its source, stores the new value, then delivers it to each rotation target.", false
+	}
 }
 
 // grantCountsByCredential returns credential_id -> number of workflows
@@ -1303,8 +1340,19 @@ func grantedWorkflowsCell(slugs []string) string {
 	return strings.Join(parts, ", ")
 }
 
-func credentialDetailBody(c credentials.Credential, rows []credentials.AuditEntry, grantedWorkflows []string) string {
+// rotateView carries the precomputed, provider-specific rotation copy so the
+// body stays a pure renderer and the server package keeps its narrow-interface
+// boundary to internal/rotators.
+type rotateView struct {
+	hint         string
+	mintsLocally bool
+}
+
+func credentialDetailBody(c credentials.Credential, rows []credentials.AuditEntry, grantedWorkflows []string, flash string, rot rotateView) string {
 	var b strings.Builder
+	if flash != "" {
+		fmt.Fprintf(&b, `<p class="notice">%s</p>`, template.HTMLEscapeString(flash))
+	}
 	fmt.Fprintf(&b, `<table>
 <tr><th>ID</th><td><code>%s</code></td></tr>
 <tr><th>Service</th><td>%s</td></tr>
@@ -1325,10 +1373,19 @@ func credentialDetailBody(c credentials.Credential, rows []credentials.AuditEntr
 	)
 
 	b.WriteString(`<h2>Actions</h2>`)
-	fmt.Fprintf(&b, `<form method="POST" action="/credentials/%s/rotate" class="form-inline">
+	// A value-replacing provider (shared-secret) discards the stored secret and
+	// generates a new random one. On an externally issued key that is
+	// destruction, not rotation, and the primary-styled button used to fire with
+	// no confirmation at all.
+	rotateConfirm := ""
+	if rot.mintsLocally {
+		rotateConfirm = ` data-confirm="Provider ` + template.HTMLEscapeString(c.Provider) +
+			` REPLACES the stored value with a NEW RANDOM secret. The current value is discarded and cannot be recovered. If this credential was issued by another service, that service keeps the old value and the integration will break. Continue?"`
+	}
+	fmt.Fprintf(&b, `<form method="POST" action="/credentials/%s/rotate" class="form-inline"%s>
   <button type="submit" class="btn-primary">Rotate now</button>
-  <span class="muted">runs the provider's mint -> deliver -> audit pipeline; safe to retry.</span>
-</form>`, template.URLQueryEscaper(c.ID))
+  <span class="muted">%s</span>
+</form>`, template.URLQueryEscaper(c.ID), rotateConfirm, template.HTMLEscapeString(rot.hint))
 
 	fmt.Fprintf(&b, `<form method="POST" action="/credentials/%s/value" class="form-inline" data-confirm="Overwrite the stored value? Any in-flight workflows holding the old value continue with it; new fetches see the new value.">
   <label>Manual update <input type="password" name="value" required placeholder="new plaintext, encrypted on write" autocomplete="new-password"></label>

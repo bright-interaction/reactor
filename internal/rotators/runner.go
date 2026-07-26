@@ -129,6 +129,23 @@ func (r *Runner) Tick(ctx context.Context) error {
 //   7. For each target, Deliver + audit per-target outcome.
 //   8. Audit success at the end.
 //
+// ProviderCapabilities describes what rotating a given provider will actually
+// do. The dashboard uses it to state the effect BEFORE the click and to refuse
+// two combinations that silently do the wrong thing: a value-replacing provider
+// on an externally issued key (which destroys it), and Auto-rotate on a provider
+// that can only ever record a reminder.
+//
+// It lives on Runner so the server package can ask through its narrow
+// CredentialRotator interface instead of importing this package, which would
+// pull the AWS SigV4 and sealed-box dependencies into read-only deployments.
+func (r *Runner) ProviderCapabilities(provider string) (canAutoRotate, mintsValueLocally bool, err error) {
+	p, err := Get(provider)
+	if err != nil {
+		return false, false, err
+	}
+	return p.CanAutoRotate(), MintsValueLocally(p), nil
+}
+
 // On any error: stamp last_rotation_error and audit a failure row,
 // return the error to the caller.
 func (r *Runner) RotateOne(ctx context.Context, credentialID string) error {
