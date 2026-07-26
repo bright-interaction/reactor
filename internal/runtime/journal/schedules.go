@@ -41,14 +41,20 @@ var ErrAlreadyFired = errors.New("journal: schedule already fired")
 // workflow's Sleep frame's UntilUnix is past the suspend threshold; the
 // row's wake_at drives the scheduler tick that re-spawns the workflow.
 func (j *Journal) ScheduleSleep(ctx context.Context, runID, stepName string, wakeAt time.Time) (string, error) {
+	return j.ScheduleSleepSeq(ctx, runID, stepName, 0, wakeAt)
+}
+
+// ScheduleSleepSeq records the sleep against its per-run call ordinal so a Sleep
+// inside a loop gets one row per iteration. seq = 0 keeps legacy semantics.
+func (j *Journal) ScheduleSleepSeq(ctx context.Context, runID, stepName string, seq int64, wakeAt time.Time) (string, error) {
 	id, err := newID("sched_")
 	if err != nil {
 		return "", err
 	}
-	const q = `INSERT INTO schedules (id, run_id, step_name, kind, wake_at, fired)
-		VALUES ($1, $2, $3, 'sleep', $4, $5)`
+	const q = `INSERT INTO schedules (id, run_id, step_name, seq, kind, wake_at, fired)
+		VALUES ($1, $2, $3, $4, 'sleep', $5, $6)`
 	_, err = j.db.ExecContext(ctx, j.bind(q),
-		id, runID, stepName, j.formatTime(wakeAt), j.boolValue(false),
+		id, runID, stepName, seq, j.formatTime(wakeAt), j.boolValue(false),
 	)
 	if err != nil {
 		return "", fmt.Errorf("journal: schedule sleep: %w", err)
@@ -62,14 +68,22 @@ func (j *Journal) ScheduleSleep(ctx context.Context, runID, stepName string, wak
 // Both are required so the row participates in both delivery and timeout
 // sweeps via a single FindDueSchedules path.
 func (j *Journal) ScheduleSignal(ctx context.Context, runID, stepName, signalName, token string, expiresAt time.Time) (string, error) {
+	return j.ScheduleSignalSeq(ctx, runID, stepName, 0, signalName, token, expiresAt)
+}
+
+// ScheduleSignalSeq records the await against its per-run call ordinal so two
+// AwaitSignal calls sharing a signal name occupy two rows instead of one. That
+// is what stops the second await from being served the first's already-delivered
+// payload. seq = 0 keeps legacy semantics.
+func (j *Journal) ScheduleSignalSeq(ctx context.Context, runID, stepName string, seq int64, signalName, token string, expiresAt time.Time) (string, error) {
 	id, err := newID("sched_")
 	if err != nil {
 		return "", err
 	}
-	const q = `INSERT INTO schedules (id, run_id, step_name, kind, wake_at, signal_name, signal_token, fired)
-		VALUES ($1, $2, $3, 'signal', $4, $5, $6, $7)`
+	const q = `INSERT INTO schedules (id, run_id, step_name, seq, kind, wake_at, signal_name, signal_token, fired)
+		VALUES ($1, $2, $3, $4, 'signal', $5, $6, $7, $8)`
 	_, err = j.db.ExecContext(ctx, j.bind(q),
-		id, runID, stepName, j.formatTime(expiresAt), signalName, token, j.boolValue(false),
+		id, runID, stepName, seq, j.formatTime(expiresAt), signalName, token, j.boolValue(false),
 	)
 	if err != nil {
 		return "", fmt.Errorf("journal: schedule signal: %w", err)
@@ -95,8 +109,17 @@ func (j *Journal) FireSignal(ctx context.Context, token string, payload []byte) 
 		// delivered row carries non-zero bytes.
 		payload = []byte("null")
 	}
+	// Prefer the OLDEST row for this token that is still awaiting delivery.
+	// The token is derived from the signal NAME, so two AwaitSignal calls
+	// sharing a name legitimately share a token; picking an arbitrary row (a
+	// bare LIMIT 1) would keep hitting the already-delivered one and report
+	// ErrAlreadyFired forever, stranding the pending await. Ordering pending
+	// rows first, oldest first, makes repeated deliveries to one signal name
+	// fill successive awaits in program order.
 	const sel = `SELECT id, run_id, signal_name, signal_payload FROM schedules
-		WHERE signal_token = $1 AND kind = 'signal' LIMIT 1`
+		WHERE signal_token = $1 AND kind = 'signal'
+		ORDER BY CASE WHEN signal_payload IS NULL THEN 0 ELSE 1 END, created_at ASC
+		LIMIT 1`
 	row := j.db.QueryRowContext(ctx, j.bind(sel), token)
 	var (
 		id       string
@@ -216,6 +239,28 @@ func (j *Journal) FindLatestSleepSchedule(ctx context.Context, runID, stepName s
 // SignalDeliver{Expired:true} (timeout) without re-suspending.
 func (j *Journal) FindLatestSignalSchedule(ctx context.Context, runID, stepName string) (Schedule, error) {
 	return j.findLatestByKind(ctx, runID, stepName, KindSignal)
+}
+
+// FindScheduleBySeq resolves a schedule by its per-run call ordinal instead of
+// by step name, so a Sleep or AwaitSignal repeated in a loop resolves to ITS
+// iteration's row. Returns ErrNotFound for seq <= 0 (pre-ordinal binaries use
+// the name-keyed lookups) and when the ordinal has not been reached yet.
+func (j *Journal) FindScheduleBySeq(ctx context.Context, runID string, seq int64, kind string) (Schedule, error) {
+	if seq <= 0 {
+		return Schedule{}, ErrNotFound
+	}
+	const q = `SELECT id, run_id, step_name, kind, wake_at, signal_name, signal_token, signal_payload, fired, created_at
+		FROM schedules WHERE run_id = $1 AND seq = $2 AND kind = $3
+		ORDER BY created_at DESC LIMIT 1`
+	row := j.db.QueryRowContext(ctx, j.bind(q), runID, seq, kind)
+	s, err := scanScheduleRow(row.Scan, j)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Schedule{}, ErrNotFound
+		}
+		return Schedule{}, err
+	}
+	return s, nil
 }
 
 func (j *Journal) findLatestByKind(ctx context.Context, runID, stepName, kind string) (Schedule, error) {
