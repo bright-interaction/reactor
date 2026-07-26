@@ -52,8 +52,17 @@ func (b *SQLBackend) Put(ctx context.Context, id string, blob []byte) error {
 	if n > 0 {
 		return nil
 	}
-	const ins = `INSERT INTO credentials (id, name, service, blob) VALUES ($1, $2, 'misc', $3)`
-	if _, err := b.db.ExecContext(ctx, b.bind(ins), id, id, blob); err != nil {
+	// This INSERT only fires when no credentials row exists yet, i.e. a
+	// vault-only write. It has no tenant context (the vault API is called by the
+	// workflow runtime, which knows a credential id and nothing about tenancy),
+	// so it binds the default tenant EXPLICITLY rather than leaning on the
+	// column default. Ownership is assigned by credentials.Repo.Create, which is
+	// what every operator-facing path goes through first; if you find a
+	// credential owned by the default tenant unexpectedly, it was created here
+	// rather than through the repo.
+	const defaultTenant = "default" // matches journal/credentials DefaultTenant + the schema default
+	const ins = `INSERT INTO credentials (id, tenant_id, name, service, blob) VALUES ($1, $2, $3, 'misc', $4)`
+	if _, err := b.db.ExecContext(ctx, b.bind(ins), id, defaultTenant, id, blob); err != nil {
 		return fmt.Errorf("vault sql: insert: %w", err)
 	}
 	return nil

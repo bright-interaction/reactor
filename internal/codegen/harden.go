@@ -58,7 +58,19 @@ func CheckAllowedImports(dir string) error {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(d.Name(), ".go") {
+		name := d.Name()
+		if !strings.HasSuffix(name, ".go") {
+			return nil
+		}
+		// Skip files the Go build itself ignores: anything starting with "." or
+		// "_" is never compiled, so scanning it can only produce false failures.
+		// The one that actually bites is macOS AppleDouble metadata: a plain
+		// `tar czf` on a Mac emits a `._main.go` sidecar next to every file, and
+		// parsing that binary blob failed the whole upload with
+		// "illegal character NUL", which every Mac user hit and which surfaced
+		// only as an opaque 500. Skipping matches the compiler's own rule, so
+		// nothing an attacker hides here would ever be built either.
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
 			return nil
 		}
 		fset := token.NewFileSet()

@@ -767,7 +767,15 @@ func (s *Server) writeValidatedCode(ctx context.Context, slug, dir string, body,
 		restore()
 		return http.StatusServiceUnavailable, errors.New("this build cannot recompile workflows, so the save would not change what runs; use the reactor CLI on a host with the Go toolchain")
 	}
-	if _, err := s.WorkflowRegister.RegisterFromDir(ctx, slug, dir); err != nil {
+	// A rebuild must not move the workflow between tenants, so pass its CURRENT
+	// owner rather than the editor's scope.
+	owner := ""
+	if s.Journal != nil {
+		if wfID, lerr := s.Journal.WorkflowIDBySlug(ctx, slug); lerr == nil {
+			owner, _ = s.Journal.WorkflowTenant(ctx, wfID)
+		}
+	}
+	if _, err := s.WorkflowRegister.RegisterFromDir(ctx, slug, dir, owner); err != nil {
 		restore()
 		return http.StatusUnprocessableEntity, fmt.Errorf("rebuild failed, previous source restored:\n%w", err)
 	}

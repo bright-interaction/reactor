@@ -278,7 +278,11 @@ type KnowledgeWriter interface {
 // surface. Accepts a directory containing main.go + dag.json, runs the
 // validator chain, builds the binary, inserts the workflows row.
 type WorkflowRegistrar interface {
-	RegisterFromDir(ctx context.Context, slug, dir string) (workflowID string, err error)
+	// tenantID owns the resulting workflow; empty means the default tenant.
+	// Without it the dashboard's upload path could not express ownership and
+	// every workflow landed in "default" regardless of the operator's choice,
+	// which is what kept tenancy inert on the workflow side.
+	RegisterFromDir(ctx context.Context, slug, dir, tenantID string) (workflowID string, err error)
 }
 
 // CodeValidator is the editor save's validation surface. The daemon
