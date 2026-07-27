@@ -127,10 +127,23 @@ if command -v go >/dev/null 2>&1; then
     echo "  is still referenced, or the build needs a toolchain this container lacks." >&2
     exit 1
   fi
-  if ( cd "$CLONE" && go test -run='^$' ./... >/dev/null ); then
+  # RUN the tests, do not merely compile them. This used to be `go test -run='^$'`,
+  # which compiles every _test.go and executes none, and that hole shipped a red
+  # suite to the public: the publish redaction rewrites the maintainer's own address
+  # (user@example.com ==> user@example.com), which silently inverted a Shield test that
+  # asserts a PERSONAL domain is classified as personal, because example.com is a
+  # business domain. Compiling proved nothing about it.
+  #
+  # The filtered tree is the artifact a contributor clones, and redaction, path
+  # stripping and commit rewriting can all change its BEHAVIOUR, not just its text.
+  # The only honest check is to run it.
+  if ( cd "$CLONE" && go test ./... -count=1 >"$WORK/mirror-test.log" 2>&1 ); then
     echo "  tests compile: OK"
   else
-    echo "REFUSING: the filtered mirror's tests do not compile." >&2
+    echo "REFUSING: the filtered mirror FAILS its own tests. Publishing would hand" >&2
+    echo "          contributors a red suite. This usually means a publish transform" >&2
+    echo "          (redaction, path strip) changed behaviour, not just text." >&2
+    grep -E '^(--- FAIL|FAIL|\s+.*_test\.go:)' "$WORK/mirror-test.log" | head -20 >&2
     exit 1
   fi
 else
