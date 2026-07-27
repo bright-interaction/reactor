@@ -13,7 +13,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          # Must match the Dockerfile FROM tag: that pin exists to pick up a
+          # specific stdlib CVE fix, and a CI toolchain older than it builds
+          # green against a stdlib the shipped artifacts do not have.
+          # Guarded by TestCIGoVersionMatchesDockerfile.
+          go-version: "1.26.5"
           cache: true
 
       - name: go vet
@@ -24,6 +28,14 @@ jobs:
 
       - name: go build
         run: go build -o bin/reactor ./cmd/reactor
+
+      # The Dockerfile pins its Go version to pick up specific stdlib CVE
+      # fixes. Without this step nothing in the public CI ever checks whether
+      # the pinned toolchain (or any dependency) has a known vulnerability.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
 
       - name: smoke test the binary
         run: |
