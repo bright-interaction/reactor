@@ -1,0 +1,51 @@
+# Docker build context exclusions.
+#
+# This file is a SECURITY control, not just a size optimisation. The Dockerfile
+# does `COPY . .` in the builder and then ships the whole tree into the runtime
+# image (`COPY --from=build /src /opt/reactor-src`, needed for the SDK replace).
+# So anything present in a build checkout is baked into the published image.
+#
+# .gitignore deliberately keeps master.key, .env files and *.db out of git.
+# Docker has no equivalent guard, so without this file a maintainer building an
+# image from a working checkout would publish their vault master key, their env
+# files and the full .git history. Keep this list in step with .gitignore.
+
+# VCS history (also removes the need for VCS stamping in the image build)
+.git
+.gitignore
+.github
+
+# Build artefacts (see .gitignore)
+/bin/
+/dist/
+/reactor
+/reactor.exe
+
+# Local data: the vault master key and any dev database
+master.key
+*.master.key
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Secrets. Mirrors .gitignore, which exists because these must never ship.
+.env
+.env.*
+*.env
+!*.env.example
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+
+# Generated frontend bundle (not needed to compile workflows)
+/internal/web/dist/
+
+# Test artefacts
+coverage.out
+coverage.html
+
+# Never part of a Go build
+node_modules
