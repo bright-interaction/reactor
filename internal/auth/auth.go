@@ -921,3 +921,54 @@ func EncodeArgon2idPHCForTest(password string, salt []byte, m, t uint32, p uint8
 		base64.RawStdEncoding.EncodeToString(hash),
 	)
 }
+
+// ErrPasswordTooShort is returned when a new password is under the minimum.
+var ErrPasswordTooShort = errors.New("auth: password must be at least 8 characters")
+
+// SetPassword replaces a user's password and invalidates every session they
+// hold. Used by the admin reset path; ChangePassword wraps it with a
+// current-password check for the self-service path.
+//
+// Destroying sessions is the point of the operation as much as the new hash is:
+// a password is usually reset BECAUSE the old one may be known to someone else,
+// and leaving live cookies valid would keep that access open. API tokens are a
+// separate credential class and are deliberately left alone; revoke them
+// explicitly from the tokens page.
+func (s *Store) SetPassword(ctx context.Context, userID, newPassword string) error {
+	if userID == "" {
+		return errors.New("auth: user id is required")
+	}
+	if len(newPassword) < 8 {
+		return ErrPasswordTooShort
+	}
+	phc, err := HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	const q = `UPDATE users SET password_phc = $1, updated_at = $2 WHERE id = $3`
+	res, err := s.db.ExecContext(ctx, s.bind(q), phc, nowUTC(), userID)
+	if err != nil {
+		return fmt.Errorf("auth: set password: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	if err := s.DestroyAllSessionsForUser(ctx, userID); err != nil {
+		return fmt.Errorf("auth: set password: revoke sessions: %w", err)
+	}
+	return nil
+}
+
+// ChangePassword is the self-service path: it verifies the CURRENT password
+// before setting the new one, so a stolen session cookie alone cannot take
+// over the account by rotating its password.
+func (s *Store) ChangePassword(ctx context.Context, userID, current, next string) error {
+	u, err := s.GetUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if !VerifyPassword(u.PasswordPHC, current) {
+		return ErrInvalidPassword
+	}
+	return s.SetPassword(ctx, userID, next)
+}

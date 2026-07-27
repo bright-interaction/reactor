@@ -42,10 +42,16 @@ func (s *Server) account(w http.ResponseWriter, r *http.Request) {
 	bill, _ := s.Journal.TenantBill(ctx, tenantID, since)
 	running, _ := s.Journal.CountRunningForTenant(ctx, tenantID)
 	queued, _ := s.Journal.CountQueuedForTenant(ctx, tenantID)
+	username := ""
+	if u, ok := UserFromContext(r.Context()); ok {
+		username = u.Username
+	}
+	body := accountBody(tenantID, tn, usage, bill, running, queued) +
+		accountPasswordForm(s.Auth != nil && username != "", username)
 	s.renderPage(w, r, page{
 		Title:   "Account",
 		Heading: "Your account",
-		Body:    template.HTML(accountBody(tenantID, tn, usage, bill, running, queued)),
+		Body:    template.HTML(body),
 	})
 }
 
