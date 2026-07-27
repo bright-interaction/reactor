@@ -1,0 +1,19 @@
+# Redactions specific to this product, appended AFTER the shared list in
+# scripts/mirror-redactions.txt. Same format (literal==>replacement) and the same
+# contract: every left-hand literal here is ALSO asserted gone from the filtered
+# history before the mirror is allowed to publish.
+#
+# Estate hostnames, the production host IP and other cross-product tokens belong
+# in the SHARED list, not here. Put a token here only when it is genuinely unique
+# to this product.
+
+# a real-shaped Arachne-era token literal from history
+rtr_YOUR_TOKEN_HERE==>rtr_YOUR_TOKEN_HERE
+# truncated form of the same
+rtr_YOUR_TOKEN_HERE==>rtr_YOUR_TOKEN_HERE
+# xkcd 936 sample password in docs
+YOUR_PASSWORD==>YOUR_PASSWORD
+# Stripe's own published test key; still trips push protection
+sk_live_REDACTED==>sk_live_REDACTED
+# placeholder GitHub token shape
+ghp_REDACTED==>ghp_REDACTED

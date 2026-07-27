@@ -79,25 +79,25 @@ fi
 # Redact internal infra references from ALL history (file contents + commit
 # messages). Distinctive tokens only, so a literal global replace is safe.
 REDACT="$WORK/redactions.txt"
-{
-  echo 'dockyard.example.com==>dockyard.example.com'
-  echo 'host==>host'
-  # Doc examples in older history that trip the gitleaks curl-auth rules (NOT
-  # real secrets: an example API token + the XKCD example password). The current
-  # docs already use obvious placeholders; this scrubs the old history. Longest
-  # token form first so the full string is replaced before its prefix.
-  echo 'rtr_YOUR_TOKEN_HERE==>rtr_YOUR_TOKEN_HERE'
-  echo 'rtr_YOUR_TOKEN_HERE==>rtr_YOUR_TOKEN_HERE'
-  echo 'YOUR_PASSWORD==>YOUR_PASSWORD'
-  # Test-fixture example secrets in older history (NOT real: the Stripe docs
-  # example key + an all-x ghp_ placeholder). Current tests split the literals;
-  # this scrubs the old contiguous forms so GitHub push protection accepts the
-  # mirror. Redacted forms are too short to match the Stripe/GitHub detectors.
-  echo 'sk_live_REDACTED==>sk_live_REDACTED'
-  echo 'ghp_REDACTED==>ghp_REDACTED'
-} > "$REDACT"
+# Redactions come from ONE shared list plus this product's extras, because the
+# per-product copies drifted: slab's never got the estate host IP or the internal
+# service hostnames, so the production IP sat in its test fixtures labelled "prod
+# host" and 98 occurrences of an internal SaaS hostname stayed in its history.
+# shellcheck source=../../scripts/mirror-redactions.sh
+. "$ROOT/scripts/mirror-redactions.sh"
+mirror_redaction_file "$ROOT" "$ROOT/reactor/scripts/mirror-redactions.txt" "$REDACT"
 echo "Redacting internal infra hostnames from all history ..."
 ( cd "$CLONE" && git filter-repo --force --replace-text "$REDACT" --replace-message "$REDACT" )
+
+# Assert the redaction actually took. Rewriting a token is a hope; checking it is
+# gone is the guarantee, and this walks every blob in every commit because that is
+# what the push publishes (mesh found names neutralised at HEAD still present in 61
+# of 156 published commits).
+mirror_redaction_check "$CLONE" "$ROOT" "$ROOT/reactor/scripts/mirror-redactions.txt"
+
+# Blobs that text redaction cannot fix: a committed binary or archive, or a
+# maintainer home path baked into build metadata. Nothing at HEAD reveals these.
+mirror_blob_sanity_check "$CLONE" "$ROOT/reactor/scripts/mirror-blob-allowlist.txt"
 
 # Defense in depth: fail if a stripped path survived.
 for p in "${STRIP_PATHS[@]}"; do
