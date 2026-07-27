@@ -1,21 +1,22 @@
 // cron-echo is the smallest workflow that demonstrates a complete
 // Reactor run end-to-end:
 //
-//   1. Daemon receives a trigger (webhook or cron) for this slug.
-//   2. Supervisor exec's this binary.
-//   3. runtime.Serve handshakes with the host, decodes the trigger
-//      payload, calls Run.
-//   4. Run executes one Step ("echo") that emits a Logger line and
-//      returns a small struct.
-//   5. Supervisor records the journal, marks the run succeeded.
+//  1. Daemon receives a trigger (webhook or cron) for this slug.
+//  2. Supervisor exec's this binary.
+//  3. runtime.Serve handshakes with the host, decodes the trigger
+//     payload, calls Run.
+//  4. Run executes one Step ("echo") that emits a Logger line and
+//     returns a small struct.
+//  5. Supervisor records the journal, marks the run succeeded.
 //
 // Build: reactor workflow build --src examples/cron-echo --slug cron-echo
 // Register: reactor workflow register --db ... --slug cron-echo
 //
 // Trigger via webhook (after seeding a webhook trigger row):
-//   curl -X POST http://127.0.0.1:7777/webhook/<token> \
-//        -H "X-Webhook-Signature: sha256=<hmac>" \
-//        -d '{"hello":"world"}'
+//
+//	curl -X POST http://127.0.0.1:7777/webhook/<token> \
+//	     -H "X-Webhook-Signature: sha256=<hmac>" \
+//	     -d '{"hello":"world"}'
 package main
 
 import (

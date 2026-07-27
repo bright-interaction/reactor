@@ -160,9 +160,11 @@ func TestSupervisorHappyPath(t *testing.T) {
 // run_id; the second supervisor reads the journal: fetch is "running" not
 // "succeeded", so it re-executes (and fetch records a SECOND line). After
 // the second run completes both steps, calls.txt contains:
-//   fetch
-//   fetch    <-- re-executed because previous attempt didn't reach step_end
-//   send     <-- only ran once because fetch had to re-execute first
+//
+//	fetch
+//	fetch    <-- re-executed because previous attempt didn't reach step_end
+//	send     <-- only ran once because fetch had to re-execute first
+//
 // This proves the journal correctly distinguishes incomplete-step from
 // completed-step on restart.
 //
@@ -257,13 +259,13 @@ func TestSupervisorLongSleepSuspendAndResume(t *testing.T) {
 	resumed := *sup
 	resumed.Now = func() time.Time { return advanced }
 	sched := &Scheduler{
-		Journal:           j,
-		Vault:             sup.Vault,
-		Log:               sup.Log,
-		Now:               func() time.Time { return advanced },
-		BinaryPath:        func(_ string) (string, error) { return binary, nil },
-		TickInterval:      time.Hour, // doesn't matter; we call Tick directly
-		Batch:             10,
+		Journal:            j,
+		Vault:              sup.Vault,
+		Log:                sup.Log,
+		Now:                func() time.Time { return advanced },
+		BinaryPath:         func(_ string) (string, error) { return binary, nil },
+		TickInterval:       time.Hour, // doesn't matter; we call Tick directly
+		Batch:              10,
 		SupervisorTemplate: resumed,
 	}
 	if err := sched.Tick(ctx); err != nil {

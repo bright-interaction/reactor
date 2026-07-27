@@ -5,11 +5,11 @@
 // One Supervisor per run. The supervisor spawns the workflow binary,
 // wires its stdin + stdout, sends the Hello frame, and then loops:
 //
-//   wf -> step_start  -> host checks journal -> reply proceed | replay
-//   wf -> step_end    -> host writes journal -> reply ack
-//   wf -> sleep       -> host blocks (short) or suspends (long, week 4) -> ack
-//   wf -> secret_fetch -> host reads vault   -> reply with bytes
-//   wf -> log         -> host forwards to slog (no reply)
+//	wf -> step_start  -> host checks journal -> reply proceed | replay
+//	wf -> step_end    -> host writes journal -> reply ack
+//	wf -> sleep       -> host blocks (short) or suspends (long, week 4) -> ack
+//	wf -> secret_fetch -> host reads vault   -> reply with bytes
+//	wf -> log         -> host forwards to slog (no reply)
 //
 // On EOF (workflow exits), the supervisor marks the run terminal
 // (succeeded if last step succeeded, failed otherwise).
@@ -64,8 +64,8 @@ type Supervisor struct {
 	// OAuthTokens resolves an `oauth:<connection-id>` secret request to a
 	// fresh access token (refreshing if needed), scoped to the run's tenant.
 	// nil disables oauth: resolution.
-	OAuthTokens  OAuthTokenResolver
-	Log          *slog.Logger
+	OAuthTokens OAuthTokenResolver
+	Log         *slog.Logger
 
 	// SignalSigningKey is the root secret (the vault master key) used to derive
 	// a per-run signing key for AwaitSignal capability tokens. Set from the
@@ -230,12 +230,12 @@ func (s *Supervisor) Run(ctx context.Context) (string, error) {
 
 // dispatcher owns one live workflow connection.
 type dispatcher struct {
-	sup       *Supervisor
-	enc       *wire.Encoder
-	dec       *wire.Decoder
-	writeMu   *sync.Mutex
-	frames    atomic.Int64
-	suspended atomic.Bool // set when a long Sleep upgrades to suspend
+	sup        *Supervisor
+	enc        *wire.Encoder
+	dec        *wire.Decoder
+	writeMu    *sync.Mutex
+	frames     atomic.Int64
+	suspended  atomic.Bool // set when a long Sleep upgrades to suspend
 	deadLetter atomic.Bool // set when a step's final attempt failed and was DLQ'd
 }
 

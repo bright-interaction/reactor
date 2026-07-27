@@ -205,7 +205,7 @@ func readPasswordTwice(p1, p2 string) (string, error) {
 }
 
 // shellSingleQuote returns s wrapped in single quotes, with embedded
-// single quotes escaped via the standard sh idiom '\''. Used by the
+// single quotes escaped via the standard sh idiom '\”. Used by the
 // reactor.env writer so values containing $ (argon2id PHC strings,
 // connection-string passwords with $) survive a `source <file>` step
 // without shell variable expansion.

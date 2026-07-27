@@ -45,8 +45,8 @@ type Analytics struct {
 
 // WorkflowAnalytics is the per-workflow rollup row.
 type WorkflowAnalytics struct {
-	WorkflowID                  string
-	Slug                        string
+	WorkflowID string
+	Slug       string
 	// TenantID disambiguates the dashboard link: slugs are unique only per
 	// tenant, so two rows can share a slug and a bare href would send both to
 	// whichever workflow is newest.

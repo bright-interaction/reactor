@@ -58,19 +58,19 @@ type DeliveryPayload struct {
 // Deliver dispatches a credential rotation to a single target. Two
 // kinds are supported in v1:
 //
-//   webhook         single-phase HMAC-signed POST. Receiver atomically
-//                   replaces the named key. Simplest contract; works
-//                   for any service that exposes a /reload endpoint.
+//	webhook         single-phase HMAC-signed POST. Receiver atomically
+//	                replaces the named key. Simplest contract; works
+//	                for any service that exposes a /reload endpoint.
 //
-//   reload_endpoint dual-phase HMAC-signed POST with a configurable
-//                   grace window between phases. The receiver accepts
-//                   BOTH old and new during the grace so in-flight
-//                   requests authenticated with the old key complete,
-//                   then a second POST closes the grace by clearing
-//                   the previous-value field. Zero-downtime rotation
-//                   for services that have actively-authenticated
-//                   sessions (BrightCRM <-> atomicsite, scanner-
-//                   dashboard <-> svar-go, etc).
+//	reload_endpoint dual-phase HMAC-signed POST with a configurable
+//	                grace window between phases. The receiver accepts
+//	                BOTH old and new during the grace so in-flight
+//	                requests authenticated with the old key complete,
+//	                then a second POST closes the grace by clearing
+//	                the previous-value field. Zero-downtime rotation
+//	                for services that have actively-authenticated
+//	                sessions (BrightCRM <-> atomicsite, scanner-
+//	                dashboard <-> svar-go, etc).
 //
 // Both kinds use the same signature scheme: HMAC-SHA256 over the raw
 // body, hex-encoded, sent as `X-Reactor-Signature: sha256=<hex>`.

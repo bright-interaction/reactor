@@ -88,4 +88,3 @@ func TestMemberIsNotLockedOutOfTheirOwnSlug(t *testing.T) {
 		t.Fatalf("admin resolved %q but the unscoped lookup says %q; admin behaviour must be unchanged", adminGot, unscoped)
 	}
 }
-

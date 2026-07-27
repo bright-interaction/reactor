@@ -163,10 +163,10 @@ func (j *Journal) ListGrants(ctx context.Context) ([]Grant, error) {
 	var out []Grant
 	for rows.Next() {
 		var (
-			g           Grant
-			granted     sql.NullString
-			grantedBy   sql.NullString
-			note        sql.NullString
+			g         Grant
+			granted   sql.NullString
+			grantedBy sql.NullString
+			note      sql.NullString
 		)
 		if err := rows.Scan(&g.WorkflowID, &g.CredentialID, &granted, &grantedBy, &note); err != nil {
 			return nil, fmt.Errorf("journal: scan grant: %w", err)

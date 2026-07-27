@@ -31,12 +31,12 @@ type Anthropic interface {
 
 // Generator builds + persists post-mortems.
 type Generator struct {
-	Anthropic Anthropic           // optional; nil → Generate returns ErrAnthropicMissing
-	Journal   *journal.Journal    // required
-	Knowledge *knowledge.Store    // required
-	Log       *slog.Logger        // optional; defaults to slog.Default
-	Now       func() time.Time    // optional; defaults to time.Now
-	Model     string              // optional; defaults to codegen.DefaultModel
+	Anthropic Anthropic        // optional; nil → Generate returns ErrAnthropicMissing
+	Journal   *journal.Journal // required
+	Knowledge *knowledge.Store // required
+	Log       *slog.Logger     // optional; defaults to slog.Default
+	Now       func() time.Time // optional; defaults to time.Now
+	Model     string           // optional; defaults to codegen.DefaultModel
 }
 
 // ErrAnthropicMissing is returned when Anthropic is nil. The dispatcher

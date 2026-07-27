@@ -263,4 +263,3 @@ func trim(b []byte) string {
 	}
 	return string(b[:max]) + "..."
 }
-

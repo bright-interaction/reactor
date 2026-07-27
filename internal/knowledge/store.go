@@ -70,10 +70,10 @@ func (e *ErrRedacted) Error() string { return e.Summary }
 // Store is the knowledge corpus. One instance per process; safe for
 // concurrent reads but every write takes the write side of the RWMutex.
 type Store struct {
-	Root      string     // ~/.reactor/knowledge by convention
-	Git       Committer  // optional; nil → noopCommitter
-	Redactor  *Redactor  // optional; nil → NewRedactor()
-	StaleDays float64    // 0 → 90 by default
+	Root      string    // ~/.reactor/knowledge by convention
+	Git       Committer // optional; nil → noopCommitter
+	Redactor  *Redactor // optional; nil → NewRedactor()
+	StaleDays float64   // 0 → 90 by default
 
 	mu sync.RWMutex
 }

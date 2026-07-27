@@ -137,6 +137,7 @@ func importAllowed(path string) bool {
 //   - GOTOOLCHAIN=local pins the toolchain so a hostile go.mod `toolchain`
 //     line can't trigger a network toolchain download + exec.
 //   - GOFLAGS=-mod=mod keeps module resolution working for the SDK import.
+//
 // buildEnvAllowlist is the set of environment variables the untrusted
 // `go build` of workflow source may inherit. It is an ALLOWLIST, not a
 // denylist. A denylist (strip REACTOR_/ARACHNE_/ANTHROPIC_) leaks every OTHER

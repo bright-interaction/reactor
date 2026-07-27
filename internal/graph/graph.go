@@ -22,24 +22,24 @@ import (
 // Common node kinds. Defined as constants so MCP / dashboard / tests
 // share the same vocabulary.
 const (
-	KindWorkflow    = "workflow"
-	KindCredential  = "credential"
-	KindTrigger     = "trigger"
-	KindRun         = "run"
-	KindDLQItem     = "dlq-item"
-	KindKnowledge   = "knowledge"
-	KindPostMortem  = "post-mortem"
+	KindWorkflow   = "workflow"
+	KindCredential = "credential"
+	KindTrigger    = "trigger"
+	KindRun        = "run"
+	KindDLQItem    = "dlq-item"
+	KindKnowledge  = "knowledge"
+	KindPostMortem = "post-mortem"
 )
 
 // Common edge kinds.
 const (
-	EdgeUses        = "USES"        // workflow USES credential
-	EdgeFires       = "FIRES"       // trigger FIRES workflow
-	EdgeBelongsTo   = "BELONGS_TO"  // run BELONGS_TO workflow
-	EdgeFrom        = "FROM"        // dlq-item FROM run
+	EdgeUses        = "USES"         // workflow USES credential
+	EdgeFires       = "FIRES"        // trigger FIRES workflow
+	EdgeBelongsTo   = "BELONGS_TO"   // run BELONGS_TO workflow
+	EdgeFrom        = "FROM"         // dlq-item FROM run
 	EdgeDerivedFrom = "DERIVED_FROM" // post-mortem DERIVED_FROM run
-	EdgeCitedBy     = "CITED_BY"    // knowledge CITED_BY workflow / run
-	EdgeSupersedes  = "SUPERSEDES"  // knowledge SUPERSEDES knowledge
+	EdgeCitedBy     = "CITED_BY"     // knowledge CITED_BY workflow / run
+	EdgeSupersedes  = "SUPERSEDES"   // knowledge SUPERSEDES knowledge
 )
 
 // Node is a single graph vertex. ID has the shape "<kind>:<local-id>"
@@ -307,8 +307,10 @@ func (g *Graph) Stats() map[string]int {
 
 // FormatSubgraph renders a Subgraph in the Claude-friendly shape
 // described in the plan:
-//   NODE workflow:welcome-customer [status=succeeded ...]
-//   EDGE workflow:foo USES credential:bar
+//
+//	NODE workflow:welcome-customer [status=succeeded ...]
+//	EDGE workflow:foo USES credential:bar
+//
 // Lighter than JSON for inline prompt injection and easier to skim.
 // promptSafe renders an untrusted string as a single-line, quoted Go literal
 // so it cannot break out of the prompt region it is embedded in.

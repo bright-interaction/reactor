@@ -54,7 +54,7 @@ func (j *Journal) ListFailedRuns(ctx context.Context, tenantID string, limit int
 	var out []FailedRun
 	for rows.Next() {
 		var (
-			fr               FailedRun
+			fr                FailedRun
 			started, finished sql.NullString
 		)
 		if err := rows.Scan(&fr.RunID, &fr.WorkflowID, &fr.TenantID, &fr.Status,

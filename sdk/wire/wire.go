@@ -7,17 +7,20 @@
 //   - Host stdout -> workflow stdin: responses + unsolicited push (signal delivery).
 //
 // Framing.
-//   Each frame is one JSON object on one line, terminated by "\n". UTF-8.
-//   No length prefix, no chunking. The encoder rejects payloads containing
-//   raw newlines so the framing contract is unambiguous.
+//
+//	Each frame is one JSON object on one line, terminated by "\n". UTF-8.
+//	No length prefix, no chunking. The encoder rejects payloads containing
+//	raw newlines so the framing contract is unambiguous.
 //
 // IDs.
-//   ID is a sender-local monotonic counter. Replies set Reply = request.ID
-//   so the requesting side can fan replies into the right channel.
+//
+//	ID is a sender-local monotonic counter. Replies set Reply = request.ID
+//	so the requesting side can fan replies into the right channel.
 //
 // Versioning.
-//   The Hello frame carries protocol version; mismatches cause the workflow
-//   subprocess to exit with a clear error before any business logic runs.
+//
+//	The Hello frame carries protocol version; mismatches cause the workflow
+//	subprocess to exit with a clear error before any business logic runs.
 package wire
 
 import (
@@ -63,10 +66,10 @@ type Frame struct {
 // Hello is exchanged on connection. Either side may close the pipe if the
 // version doesn't match.
 type Hello struct {
-	Version  string `json:"version"`
+	Version      string `json:"version"`
 	WorkflowSlug string `json:"workflow_slug,omitempty"`
-	RunID    string `json:"run_id,omitempty"`
-	Mode     string `json:"mode,omitempty"` // "live" | "replay" | "dry_run"
+	RunID        string `json:"run_id,omitempty"`
+	Mode         string `json:"mode,omitempty"` // "live" | "replay" | "dry_run"
 	// SignalKey is the per-run signing key (hex) the workflow uses to compute
 	// AwaitSignal capability tokens: token = HMAC(SignalKey, signalName). It is
 	// delivered only over this private host->workflow frame, never exposed in
@@ -208,7 +211,7 @@ const MaxFrameBytes = 1 << 20
 
 // Encoder writes frames to an io.Writer. Safe for one writer per Encoder.
 type Encoder struct {
-	w  *bufio.Writer
+	w   *bufio.Writer
 	buf bytes.Buffer
 }
 
