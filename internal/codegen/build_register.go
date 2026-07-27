@@ -147,7 +147,7 @@ func BuildAndRegister(ctx context.Context, j JournalForBuildRegister, req BuildA
 	}
 
 	binPath := filepath.Join(binDir, "workflow")
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", binPath, ".")
+	cmd := exec.CommandContext(ctx, "go", "build", BuildVCSFlag, "-o", binPath, ".")
 	cmd.Dir = req.SrcDir
 	cmd.Env = SecureBuildEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
