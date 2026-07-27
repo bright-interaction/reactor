@@ -178,3 +178,18 @@ func SecureBuildEnv() []string {
 	)
 	return env
 }
+
+// BuildVCSFlag disables Go's VCS stamping on every workflow compile.
+//
+// `go build` stamps VCS info by default, which makes it shell out to git
+// whenever the source sits inside a repository. Reactor's README tells
+// operators to `git init` their state directory and the Dockerfile ships git,
+// while the daemon normally runs as a different uid than whoever created that
+// repo (the systemd `reactor` user, uid 65532 in the image). git then reports
+// "detected dubious ownership", exits 128, and the compile fails with an
+// opaque "error obtaining VCS status: exit status 128" that reaches the
+// operator only as "go build: exit status 1".
+//
+// Nothing in Reactor reads the stamp, so this is free. Guarded by
+// TestEveryGoBuildDisablesVCSStamping so a new call site cannot omit it.
+const BuildVCSFlag = "-buildvcs=false"
