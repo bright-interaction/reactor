@@ -99,6 +99,11 @@ mirror_redaction_check "$CLONE" "$ROOT" "$ROOT/reactor/scripts/mirror-redactions
 # maintainer home path baked into build metadata. Nothing at HEAD reveals these.
 mirror_blob_sanity_check "$CLONE" "$ROOT/reactor/scripts/mirror-blob-allowlist.txt"
 
+# Laptop-local and placeholder author addresses. Publish time is the only
+# moment these can be fixed: the push rewrites history and addresses are
+# immutable afterwards.
+mirror_rewrite_authors "$CLONE"
+
 # Defense in depth: fail if a stripped path survived.
 for p in "${STRIP_PATHS[@]}"; do
   [ -e "$CLONE/$p" ] && { echo "REFUSING: stripped path '$p' still present." >&2; exit 1; }
