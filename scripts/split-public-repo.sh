@@ -158,5 +158,11 @@ if [ "$PUSH" -eq 0 ]; then
 fi
 
 echo "Pushing filtered mirror -> $REMOTE_URL main ..."
-( cd "$CLONE" && git push "$REMOTE_URL" HEAD:main )
+# Force-with-lease, because mirror_rewrite_authors and the redaction passes rewrite
+# EVERY commit id, so the mirror can never fast-forward over what is published.
+# The lease pins the overwrite to the head we actually observed, so a commit
+# landed directly on the public repo aborts the push instead of vanishing.
+# shellcheck source=../../scripts/mirror-push.sh
+. "$ROOT/scripts/mirror-push.sh"
+mirror_force_publish "$CLONE" "$REMOTE_URL"
 echo "Done. Cleanup: git branch -D $SPLIT_BRANCH"
