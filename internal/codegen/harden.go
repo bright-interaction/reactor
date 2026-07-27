@@ -29,6 +29,13 @@ var AllowedImportPrefixes = []string{
 // build time); the rest give a workflow OS/process/memory reach it must never
 // have. Checked in EVERY scanned file, not just main.go, so a subdir file
 // cannot smuggle them past the lint pass.
+//
+// NB this list is NOT containment, and denying os/exec does not by itself deny
+// process spawning: plain "os" is allowlisted as stdlib and os.StartProcess
+// spawns a process just as well, so `reactor lint` bans that call separately.
+// Assembly (.s) files are not scanned either, since this walk parses only .go.
+// See docs/security.md Layer 4: the real boundary is the OS user the daemon
+// runs as.
 var deniedImports = map[string]struct{}{
 	"C":         {},
 	"unsafe":    {},
