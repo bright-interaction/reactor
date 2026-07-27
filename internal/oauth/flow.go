@@ -191,7 +191,11 @@ func (s *Store) exchange(ctx context.Context, p Provider, form url.Values) (toke
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode/100 != 2 {
-		return tokenBlob{}, fmt.Errorf("oauth: token endpoint %d: %s", resp.StatusCode, truncate(string(body), 300))
+		// Status code only. Echoing the body put the token endpoint's response
+		// into an operator-visible error, which turns any SSRF reach (a
+		// redirect, or an internal token_url) into a read primitive. Same
+		// reason the Slack and webhook notifiers report status alone.
+		return tokenBlob{}, fmt.Errorf("oauth: token endpoint returned %d", resp.StatusCode)
 	}
 	var raw struct {
 		AccessToken  string `json:"access_token"`
