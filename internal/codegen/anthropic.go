@@ -74,31 +74,31 @@ func NewAnthropicFromEnv() (*AnthropicClient, error) {
 // MessagesRequest is the subset of the Messages API we use. Tools forces a
 // structured output by giving Claude exactly one tool to call.
 type MessagesRequest struct {
-	Model      string         `json:"model"`
-	MaxTokens  int            `json:"max_tokens"`
-	System     string         `json:"system,omitempty"`
-	Messages   []Message      `json:"messages"`
-	Tools      []Tool         `json:"tools,omitempty"`
-	ToolChoice *ToolChoice    `json:"tool_choice,omitempty"`
-	Temperature *float64      `json:"temperature,omitempty"`
+	Model       string      `json:"model"`
+	MaxTokens   int         `json:"max_tokens"`
+	System      string      `json:"system,omitempty"`
+	Messages    []Message   `json:"messages"`
+	Tools       []Tool      `json:"tools,omitempty"`
+	ToolChoice  *ToolChoice `json:"tool_choice,omitempty"`
+	Temperature *float64    `json:"temperature,omitempty"`
 }
 
 // Message is one user/assistant turn. ContentBlocks lets us send tool_result
 // blocks alongside text without ad-hoc string formatting.
 type Message struct {
-	Role    string         `json:"role"`           // "user" | "assistant"
+	Role    string         `json:"role"` // "user" | "assistant"
 	Content []ContentBlock `json:"content"`
 }
 
 // ContentBlock is a single piece of message content.
 type ContentBlock struct {
-	Type   string          `json:"type"`             // "text" | "tool_use" | "tool_result"
-	Text   string          `json:"text,omitempty"`
-	ID     string          `json:"id,omitempty"`     // tool_use id
-	Name   string          `json:"name,omitempty"`   // tool_use name
-	Input  json.RawMessage `json:"input,omitempty"`  // tool_use input
-	ToolUseID string       `json:"tool_use_id,omitempty"` // tool_result link
-	IsError bool           `json:"is_error,omitempty"`    // tool_result error flag
+	Type      string          `json:"type"` // "text" | "tool_use" | "tool_result"
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`          // tool_use id
+	Name      string          `json:"name,omitempty"`        // tool_use name
+	Input     json.RawMessage `json:"input,omitempty"`       // tool_use input
+	ToolUseID string          `json:"tool_use_id,omitempty"` // tool_result link
+	IsError   bool            `json:"is_error,omitempty"`    // tool_result error flag
 }
 
 // Tool advertises a callable tool. The schema forces the AI's structured
@@ -218,4 +218,3 @@ func snippet(b []byte) string {
 	}
 	return string(b[:max]) + "..."
 }
-

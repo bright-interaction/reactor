@@ -378,7 +378,7 @@ func TestStoreSwapAtomicity(t *testing.T) {
 	}
 
 	const (
-		rounds       = 8
+		rounds = 8
 		// 60s tolerance: under -race + parallel workload the Go scheduler
 		// can delay channel sends well past 15s on busy CI. The test only
 		// asserts "watch eventually fires after a stale read"; widening

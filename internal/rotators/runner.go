@@ -120,14 +120,14 @@ func (r *Runner) Tick(ctx context.Context) error {
 // id. Manual CLI triggers and tests call this directly.
 //
 // Steps:
-//   1. Load metadata + provider.
-//   2. Audit start.
-//   3. Get current plaintext from vault.
-//   4. Provider.Rotate -> new value.
-//   5. vault.Rotate (encrypt + persist + hot-swap).
-//   6. credentials.MarkRotated.
-//   7. For each target, Deliver + audit per-target outcome.
-//   8. Audit success at the end.
+//  1. Load metadata + provider.
+//  2. Audit start.
+//  3. Get current plaintext from vault.
+//  4. Provider.Rotate -> new value.
+//  5. vault.Rotate (encrypt + persist + hot-swap).
+//  6. credentials.MarkRotated.
+//  7. For each target, Deliver + audit per-target outcome.
+//  8. Audit success at the end.
 //
 // ProviderCapabilities describes what rotating a given provider will actually
 // do. The dashboard uses it to state the effect BEFORE the click and to refuse

@@ -66,10 +66,10 @@ type Credential struct {
 // rotator runs each target sequentially after the new value is encrypted
 // + persisted.
 type Target struct {
-	Kind         string `json:"kind"`        // "webhook"
-	URL          string `json:"url"`         // POST URL
-	SecretID     string `json:"secret_id"`   // vault credential id holding HMAC secret
-	KeyName      string `json:"key_name"`    // body key (e.g. SCANNER_SVAR_SECRET)
+	Kind         string `json:"kind"`      // "webhook"
+	URL          string `json:"url"`       // POST URL
+	SecretID     string `json:"secret_id"` // vault credential id holding HMAC secret
+	KeyName      string `json:"key_name"`  // body key (e.g. SCANNER_SVAR_SECRET)
 	GraceSeconds int    `json:"grace_seconds,omitempty"`
 }
 

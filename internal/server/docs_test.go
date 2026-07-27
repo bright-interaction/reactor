@@ -34,13 +34,13 @@ func TestDocsPageRendersMarkdownAsHTML(t *testing.T) {
 	body := getBody(t, srv.URL+"/docs/dashboard")
 	s := string(body)
 	for _, want := range []string{
-		"<h1",                          // headings rendered
-		"<table",                       // GFM tables rendered
-		"<code",                        // inline code rendered
-		"Dashboard pages + endpoints",  // doc title in the heading slot
-		"docs-shell",                   // nav + body shell present
+		"<h1",                         // headings rendered
+		"<table",                      // GFM tables rendered
+		"<code",                       // inline code rendered
+		"Dashboard pages + endpoints", // doc title in the heading slot
+		"docs-shell",                  // nav + body shell present
 		"docs-nav",
-		`href="/docs/api"`,             // left-rail link to another page
+		`href="/docs/api"`, // left-rail link to another page
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("doc page missing %q\n--- snip ---\n%s", want, s[:min(len(s), 2000)])

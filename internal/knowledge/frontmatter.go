@@ -26,17 +26,17 @@ import (
 // third-party dependency. New fields go through this type and the
 // matching parse/encode functions below.
 type Frontmatter struct {
-	ID               string    `yaml:"id"`
-	Topic            string    `yaml:"topic"`
-	Title            string    `yaml:"title"`
-	CreatedAt        time.Time `yaml:"created_at"`
-	CreatedBy        string    `yaml:"created_by"` // seed | claude | operator
-	Sources          []string  `yaml:"sources"`
-	Tags             []string  `yaml:"tags"`
-	Supersedes       []string  `yaml:"supersedes"`
-	LastValidatedAt  time.Time `yaml:"last_validated_at"`
-	Gold             bool      `yaml:"gold"`
-	CitationCount    int       `yaml:"citation_count"`
+	ID              string    `yaml:"id"`
+	Topic           string    `yaml:"topic"`
+	Title           string    `yaml:"title"`
+	CreatedAt       time.Time `yaml:"created_at"`
+	CreatedBy       string    `yaml:"created_by"` // seed | claude | operator
+	Sources         []string  `yaml:"sources"`
+	Tags            []string  `yaml:"tags"`
+	Supersedes      []string  `yaml:"supersedes"`
+	LastValidatedAt time.Time `yaml:"last_validated_at"`
+	Gold            bool      `yaml:"gold"`
+	CitationCount   int       `yaml:"citation_count"`
 }
 
 // parseFrontmatter reads the leading `---`-fenced YAML block and returns

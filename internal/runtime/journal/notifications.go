@@ -286,12 +286,12 @@ func (j *Journal) DeleteNotificationRoute(ctx context.Context, workflowID, chann
 // a workflow plus the joined channel row so the dashboard can render
 // channel name + kind without a second lookup.
 type NotificationRouteWithChannel struct {
-	WorkflowID string
-	ChannelID  string
+	WorkflowID  string
+	ChannelID   string
 	ChannelName string
 	ChannelKind string
-	OnStatuses string
-	CreatedAt  time.Time
+	OnStatuses  string
+	CreatedAt   time.Time
 }
 
 func (j *Journal) ListNotificationRoutesForWorkflow(ctx context.Context, workflowID string) ([]NotificationRouteWithChannel, error) {
@@ -404,7 +404,6 @@ func scanChannel(scan func(...any) error, j *Journal) (NotificationChannel, erro
 	}
 	return ch, nil
 }
-
 
 // routeTenants resolves the owning tenants of a workflow and a notification
 // channel, refusing when either row is missing. Mirrors grantTenants: a relation

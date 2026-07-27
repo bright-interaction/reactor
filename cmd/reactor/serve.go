@@ -76,20 +76,20 @@ func cmdServe(ctx context.Context, log *slog.Logger, args []string) error {
 // only function that touches the flag.FlagSet, env vars, and master
 // key resolution; everything else reads from this struct.
 type serveConfig struct {
-	dbURL            string
-	addr             string
-	tlsCert          string
-	tlsKey           string
+	dbURL             string
+	addr              string
+	tlsCert           string
+	tlsKey            string
 	root              string
 	masterKey         []byte
 	previousMasterKey []byte
 	tickInterval      time.Duration
-	rotationInterval time.Duration
-	cronReload       time.Duration
-	drainTimeout     time.Duration
-	aclPermissive    bool
-	cgroupRoot       string
-	insecureNoAuth   bool
+	rotationInterval  time.Duration
+	cronReload        time.Duration
+	drainTimeout      time.Duration
+	aclPermissive     bool
+	cgroupRoot        string
+	insecureNoAuth    bool
 
 	// mode is "local" (single-node, execute in-process) or "distributed"
 	// (enqueue runs for `reactor worker` processes to claim). Distributed
@@ -167,15 +167,15 @@ func parseServeFlags(args []string) (*serveConfig, error) {
 		root:              *root,
 		masterKey:         masterKey,
 		previousMasterKey: previousMasterKey,
-		tickInterval:     *tickInterval,
-		rotationInterval: *rotationInterval,
-		cronReload:       *cronReload,
-		drainTimeout:     *drainTimeout,
-		aclPermissive:    *aclPermissive,
-		cgroupRoot:       *cgroupRoot,
-		insecureNoAuth:   *insecureNoAuth,
-		mode:             *mode,
-		autoscale:        *autoscale,
+		tickInterval:      *tickInterval,
+		rotationInterval:  *rotationInterval,
+		cronReload:        *cronReload,
+		drainTimeout:      *drainTimeout,
+		aclPermissive:     *aclPermissive,
+		cgroupRoot:        *cgroupRoot,
+		insecureNoAuth:    *insecureNoAuth,
+		mode:              *mode,
+		autoscale:         *autoscale,
 	}, nil
 }
 

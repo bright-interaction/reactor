@@ -8,7 +8,8 @@
 // Build:    reactor workflow build --src examples/stripe-checkout --slug stripe-checkout
 // Register: reactor workflow register --db ... --slug stripe-checkout
 // Trigger:  POST /webhook/<token> with
-//           {"order_id":"o_1","price_id":"price_123","success_url":"https://x/ok","cancel_url":"https://x/no"}
+//
+//	{"order_id":"o_1","price_id":"price_123","success_url":"https://x/ok","cancel_url":"https://x/no"}
 package main
 
 import (

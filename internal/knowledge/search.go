@@ -18,11 +18,11 @@ import (
 // corpus and a graph node hit use the same tokenisation.
 
 const (
-	bm25K1         = 1.5
-	bm25B          = 0.75
-	titleWeight    = 3.0
-	goldBoost      = 0.5
-	staleHalfLife  = 0.7 // multiply score by this when entry is past stale window
+	bm25K1        = 1.5
+	bm25B         = 0.75
+	titleWeight   = 3.0
+	goldBoost     = 0.5
+	staleHalfLife = 0.7 // multiply score by this when entry is past stale window
 )
 
 // Hit pairs an entry with its BM25 score. Higher = more relevant.

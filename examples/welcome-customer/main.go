@@ -2,16 +2,16 @@
 // full SDK surface so an operator running the demo can see every
 // Reactor feature working together:
 //
-//   1. Step with retry policy + idempotency key + timeout.
-//   2. vault.MustGet for an external API credential.
-//   3. reactor.Permanent to surface non-retryable errors.
-//   4. AwaitSignal as the human-in-the-loop primitive (with token
-//      derivation so the workflow can put a "click here to approve"
-//      URL in an outbound email before suspending).
-//   5. Sleep(72h) demonstrating the long-suspend / scheduler-resume
-//      flow.
-//   6. A second Step that consumes both the signal payload and the
-//      sleep boundary.
+//  1. Step with retry policy + idempotency key + timeout.
+//  2. vault.MustGet for an external API credential.
+//  3. reactor.Permanent to surface non-retryable errors.
+//  4. AwaitSignal as the human-in-the-loop primitive (with token
+//     derivation so the workflow can put a "click here to approve"
+//     URL in an outbound email before suspending).
+//  5. Sleep(72h) demonstrating the long-suspend / scheduler-resume
+//     flow.
+//  6. A second Step that consumes both the signal payload and the
+//     sleep boundary.
 //
 // Build:    reactor workflow build --src examples/welcome-customer --slug welcome-customer
 // Register: reactor workflow register --db ... --slug welcome-customer

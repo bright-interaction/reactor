@@ -325,10 +325,10 @@ func (j *Journal) GetRun(ctx context.Context, runID string) (RunInfo, error) {
 		FROM runs WHERE id = $1`
 	row := j.db.QueryRowContext(ctx, j.bind(q), runID)
 	var (
-		info       RunInfo
-		meta       []byte
-		started    sql.NullString
-		finished   sql.NullString
+		info     RunInfo
+		meta     []byte
+		started  sql.NullString
+		finished sql.NullString
 	)
 	if err := row.Scan(&info.ID, &info.WorkflowID, &info.TenantID, &info.TriggerKind, &info.Status, &meta, &started, &finished); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -380,12 +380,12 @@ func (j *Journal) ListSteps(ctx context.Context, runID string) ([]StepRow, error
 	var out []StepRow
 	for rows.Next() {
 		var (
-			s         StepRow
-			idem      sql.NullString
-			outBlob   []byte
-			errText   sql.NullString
-			started   sql.NullString
-			finished  sql.NullString
+			s        StepRow
+			idem     sql.NullString
+			outBlob  []byte
+			errText  sql.NullString
+			started  sql.NullString
+			finished sql.NullString
 		)
 		if err := rows.Scan(&s.StepName, &s.Attempt, &idem, &s.Status, &outBlob, &errText, &started, &finished); err != nil {
 			return nil, fmt.Errorf("journal: scan step: %w", err)

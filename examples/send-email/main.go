@@ -7,8 +7,9 @@
 // Build:    reactor workflow build --src examples/send-email --slug send-email
 // Register: reactor workflow register --db ... --slug send-email
 // Trigger:  POST /webhook/<token> with
-//           {"connection_id":"conn_x","from":"me@x.com","to":"c@y.com",
-//            "subject":"Hi","body":"hello"}
+//
+//	{"connection_id":"conn_x","from":"me@x.com","to":"c@y.com",
+//	 "subject":"Hi","body":"hello"}
 package main
 
 import (

@@ -117,4 +117,3 @@ func TestWorkflowSetMinutesSavedRejectsNegative(t *testing.T) {
 		t.Fatalf("status = %d, want 400 for negative minutes", resp.StatusCode)
 	}
 }
-

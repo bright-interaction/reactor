@@ -26,19 +26,19 @@ const (
 // Trigger is a row from the triggers table. The webhook fields (TokenID,
 // SecretID, Provider) are populated only for webhook triggers.
 type Trigger struct {
-	ID         string
-	TenantID   string
-	WorkflowID string
-	Kind       TriggerKind
-	Config     []byte // JSON
-	State      string
-	TokenID    string
-	SecretID   string
-	Provider   string
+	ID          string
+	TenantID    string
+	WorkflowID  string
+	Kind        TriggerKind
+	Config      []byte // JSON
+	State       string
+	TokenID     string
+	SecretID    string
+	Provider    string
 	LastFiredAt *time.Time
-	LastError  string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	LastError   string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // CreateWebhookTrigger registers a webhook binding. tokenID is the public
@@ -298,17 +298,17 @@ func NewTokenID() (string, error) {
 
 func (j *Journal) scanTrigger(row *sql.Row) (Trigger, error) {
 	var (
-		t           Trigger
-		tenantID    sql.NullString
-		kind        string
-		cfg         []byte
-		tokenID     sql.NullString
-		secretID    sql.NullString
-		provider    sql.NullString
-		lastFired   sql.NullString
-		lastErr     sql.NullString
-		createdAt   sql.NullString
-		updatedAt   sql.NullString
+		t         Trigger
+		tenantID  sql.NullString
+		kind      string
+		cfg       []byte
+		tokenID   sql.NullString
+		secretID  sql.NullString
+		provider  sql.NullString
+		lastFired sql.NullString
+		lastErr   sql.NullString
+		createdAt sql.NullString
+		updatedAt sql.NullString
 	)
 	if err := row.Scan(&t.ID, &tenantID, &t.WorkflowID, &kind, &cfg, &t.State,
 		&tokenID, &secretID, &provider, &lastFired, &lastErr, &createdAt, &updatedAt); err != nil {

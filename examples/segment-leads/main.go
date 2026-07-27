@@ -7,7 +7,8 @@
 // Build:    reactor workflow build --src examples/segment-leads --slug segment-leads
 // Register: reactor workflow register --db ... --slug segment-leads
 // Trigger:  POST /webhook/<token> with
-//           {"leads":[{"email":"a@x.com","score":90},{"email":"a@x.com","score":90},{"email":"b@x.com","score":50}]}
+//
+//	{"leads":[{"email":"a@x.com","score":90},{"email":"a@x.com","score":90},{"email":"b@x.com","score":50}]}
 package main
 
 import (

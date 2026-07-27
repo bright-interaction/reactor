@@ -248,4 +248,3 @@ func deriveSigV4Key(secret, dateStamp, region, service string) []byte {
 	kService := hmacSHA256(kRegion, []byte(service))
 	return hmacSHA256(kService, []byte("aws4_request"))
 }
-

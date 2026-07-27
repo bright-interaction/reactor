@@ -19,7 +19,7 @@ import (
 // The Flow contract is unchanged; only the implementation moves.
 type InProcFlow struct {
 	log     *slog.Logger
-	now     func() time.Time   // injectable clock for fast tests
+	now     func() time.Time      // injectable clock for fast tests
 	sleep   func(d time.Duration) // injectable sleeper for tests
 	mu      sync.Mutex
 	steps   []StepRecord
