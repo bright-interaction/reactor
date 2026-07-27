@@ -54,6 +54,8 @@ cd "$ROOT"
 # authoritative gate.
 # shellcheck source=../../scripts/mirror-secret-preflight.sh
 . "$ROOT/scripts/mirror-secret-preflight.sh"
+# shellcheck source=../../scripts/mirror-module-path.sh
+. "$ROOT/scripts/mirror-module-path.sh"
 mirror_secret_preflight "$PREFIX" "$ROOT/$PREFIX/scripts/mirror-secret-allowlist.txt"
 
 echo "Splitting $PREFIX/ subtree (history-preserving) into $SPLIT_BRANCH ..."
@@ -136,6 +138,9 @@ else
 fi
 
 # Authoritative secret scan: the single-branch clone IS the publish payload.
+echo "Checking the published module path resolves to this repo ..."
+mirror_assert_module_path "$CLONE" "$REMOTE_URL"
+
 if command -v gitleaks >/dev/null 2>&1; then
   echo "Scanning mirror history for secrets (gitleaks) ..."
   if ! ( cd "$CLONE" && gitleaks detect --source . --config .gitleaks.toml --no-banner --redact >/dev/null 2>&1 ); then
