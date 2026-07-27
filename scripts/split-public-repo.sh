@@ -138,7 +138,7 @@ if command -v go >/dev/null 2>&1; then
   # stripping and commit rewriting can all change its BEHAVIOUR, not just its text.
   # The only honest check is to run it.
   if ( cd "$CLONE" && go test ./... -count=1 >"$WORK/mirror-test.log" 2>&1 ); then
-    echo "  tests compile: OK"
+    echo "  tests PASS: OK"
   else
     echo "REFUSING: the filtered mirror FAILS its own tests. Publishing would hand" >&2
     echo "          contributors a red suite. This usually means a publish transform" >&2
