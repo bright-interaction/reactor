@@ -5,8 +5,45 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
+
+// OAuthSecretPrefix marks a secret id that names an OAuth connection rather
+// than a vault credential. The two id namespaces live in DIFFERENT tables
+// (oauth_connections vs credentials), so every ownership or tenancy lookup on a
+// secret id has to dispatch on this prefix. Resolving an "oauth:" id against
+// the credentials table always misses, which is how the tenant guard silently
+// disabled the entire Connections feature: the lookup returned "not found" and
+// the fetch was denied before the oauth branch ran.
+const OAuthSecretPrefix = "oauth:"
+
+// SecretTenant returns the tenant that owns a secret id, dispatching on the
+// namespace. Use this, never CredentialTenant, anywhere a caller can hand in a
+// workflow-supplied secret id: workflows address OAuth connections as
+// "oauth:<connection-id>" and vault credentials by bare id.
+func (j *Journal) SecretTenant(ctx context.Context, secretID string) (string, error) {
+	if connID, isOAuth := strings.CutPrefix(secretID, OAuthSecretPrefix); isOAuth {
+		return j.oauthConnectionTenant(ctx, connID)
+	}
+	return j.CredentialTenant(ctx, secretID)
+}
+
+// oauthConnectionTenant is the oauth_connections half of SecretTenant.
+func (j *Journal) oauthConnectionTenant(ctx context.Context, connectionID string) (string, error) {
+	if connectionID == "" {
+		return "", fmt.Errorf("journal: oauth connection tenant: id required")
+	}
+	var tenant sql.NullString
+	const q = `SELECT tenant_id FROM oauth_connections WHERE id = $1`
+	switch err := j.db.QueryRowContext(ctx, j.bind(q), connectionID).Scan(&tenant); {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", ErrNotFound
+	case err != nil:
+		return "", fmt.Errorf("journal: oauth connection tenant: %w", err)
+	}
+	return tenant.String, nil
+}
 
 // Grant is one row of workflow_secret_grants. Returned by ListGrants
 // for the dashboard / `reactor vault grants` CLI surface.
@@ -80,14 +117,19 @@ func (j *Journal) grantTenants(ctx context.Context, workflowID, credentialID str
 	if err != nil {
 		return "", "", fmt.Errorf("journal: grant: lookup workflow tenant: %w", err)
 	}
-	err = j.db.QueryRowContext(ctx,
-		j.bind(`SELECT tenant_id FROM credentials WHERE id = $1 AND deleted_at IS NULL`), credentialID).Scan(&credTenant)
-	if errors.Is(err, sql.ErrNoRows) {
+	// Dispatch on the namespace: an "oauth:<id>" grant target is an OAuth
+	// connection, not a credential. Looking it up in the credentials table
+	// always missed, so GrantSecret refused every oauth grant with "grant target
+	// does not exist" and the operator had no way to authorise a workflow for a
+	// connection at all.
+	credTenantStr, err := j.SecretTenant(ctx, credentialID)
+	if errors.Is(err, ErrNotFound) {
 		return "", "", fmt.Errorf("%w: credential %q", ErrGrantTarget, credentialID)
 	}
 	if err != nil {
 		return "", "", fmt.Errorf("journal: grant: lookup credential tenant: %w", err)
 	}
+	credTenant = sql.NullString{String: credTenantStr, Valid: true}
 	return wfTenant.String, credTenant.String, nil
 }
 

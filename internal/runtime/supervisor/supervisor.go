@@ -747,7 +747,11 @@ func (d *dispatcher) handleSecretFetch(ctx context.Context, f wire.Frame) error 
 		// still authorise, and Vault.Get has no tenant predicate of its own. An
 		// explicit tenant equality check here means a stale grant cannot leak a
 		// credential across the boundary.
-		if credTenant, cErr := d.sup.Journal.CredentialTenant(ctx, body.ID); cErr != nil || credTenant != runTenant {
+		// SecretTenant, not CredentialTenant: a workflow can ask for an OAuth
+		// connection as "oauth:<id>", which lives in oauth_connections. Resolving
+		// that against the credentials table always missed, so this guard denied
+		// every oauth fetch before the oauth branch below could run.
+		if credTenant, cErr := d.sup.Journal.SecretTenant(ctx, body.ID); cErr != nil || credTenant != runTenant {
 			d.sup.Log.Warn("supervisor: secret access denied (credential belongs to another tenant)",
 				"run_tenant", runTenant, "credential_id", body.ID, "err", cErr)
 			deny, _ := wire.Wrap(d.nextID(), f.ID, wire.KindSecretReply, wire.SecretReply{NotFound: true})
