@@ -29,6 +29,11 @@ type AuthAdmin interface {
 	CountUsers(ctx context.Context) (int, error)
 
 	Authenticate(ctx context.Context, username, password string) (auth.User, error)
+	// SetPassword is the admin reset (no old password needed); ChangePassword
+	// is the self-service rotate and verifies the current one. Both revoke the
+	// user's live sessions.
+	SetPassword(ctx context.Context, userID, newPassword string) error
+	ChangePassword(ctx context.Context, userID, current, next string) error
 	CreateSession(ctx context.Context, userID, userAgent, ip string, ttl time.Duration) (string, error)
 	DestroySession(ctx context.Context, cookieValue string) error
 	DestroyAllSessionsForUser(ctx context.Context, userID string) error
@@ -540,6 +545,8 @@ func usersBody(list []auth.User, me auth.User, errMsg string) string {
 				actions += fmt.Sprintf(`<form method="POST" action="/users/%s/disable" class="form-inline"><button type="submit" class="btn-link">disable</button></form>`,
 					template.URLQueryEscaper(u.ID))
 			}
+			actions += fmt.Sprintf(`<form method="POST" action="/users/%s/password" class="form-inline" data-confirm="Issue a new password for %s? Every session they hold is signed out."><input type="password" name="password" placeholder="new password" required minlength="8" size="14" autocomplete="new-password"> <button type="submit" class="btn-link">set password</button></form>`,
+				template.URLQueryEscaper(u.ID), template.HTMLEscapeString(u.Username))
 			actions += fmt.Sprintf(`<form method="POST" action="/users/%s/delete" class="form-inline" data-confirm="Delete user %s?"><button type="submit" class="btn-link">delete</button></form>`,
 				// HTMLEscapeString now, not JSEscapeString: the message moved
 				// from an inline JS string literal into an HTML attribute, and

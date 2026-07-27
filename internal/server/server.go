@@ -429,6 +429,11 @@ func (s *Server) mountAuthRoutes(r chi.Router) {
 	r.Post("/users/{id}/disable", s.usersDisable)
 	r.Post("/users/{id}/enable", s.usersEnable)
 	r.Post("/users/{id}/delete", s.usersDelete)
+	// Password reset (admin, gated in-handler) + self-service change. Without
+	// these the login page's "ask an admin to mint a fresh one" was a promise
+	// no surface could keep.
+	r.Post("/users/{id}/password", s.usersSetPassword)
+	r.Post("/account/password", s.accountChangePassword)
 
 	// Second-factor challenge at login (reachable by a pending session only).
 	r.Get("/login/mfa", s.mfaChallenge)
