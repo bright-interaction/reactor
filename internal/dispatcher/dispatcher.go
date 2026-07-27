@@ -117,6 +117,11 @@ type Dispatcher struct {
 // are already executing. Callers shed load rather than queue unbounded.
 var ErrCapacity = errors.New("dispatcher: at capacity; run not started")
 
+// ErrRetryInFlight is returned when a dead-letter retry loses the claim race:
+// the run is already executing (a concurrent retry won) or was cancelled.
+// Surfacing it lets the dashboard say so instead of silently double-running.
+var ErrRetryInFlight = errors.New("dispatcher: run is already executing or was cancelled; retry not started")
+
 // acquire takes a concurrency slot. Returns true when a slot was free (or
 // the dispatcher is unlimited). Non-blocking: a full pool fails fast so
 // the caller can shed load.
@@ -201,6 +206,33 @@ func (d *Dispatcher) RetryDeadLetter(ctx context.Context, dlqID string) (string,
 	if err != nil {
 		return "", fmt.Errorf("dispatcher: get run: %w", err)
 	}
+	// A retry is a run, so it goes through the SAME gates dispatch() applies.
+	// This path used to call sup.Run directly and skipped all of them: the
+	// enabled flag (so "disable" was not a kill switch), the tenant quota, the
+	// per-workflow rate limit, the concurrency slot, the inFlight WaitGroup
+	// (graceful drain did not wait for it), the cancel registry (the run could
+	// not be stopped), and execute()'s panic recovery (a panic left the run
+	// stuck in "running" because the status had already been flipped).
+	if enabled, eErr := d.Journal.IsWorkflowEnabled(ctx, run.WorkflowID); eErr == nil && !enabled {
+		d.Log.Info("dispatcher: refusing dlq retry; workflow disabled",
+			"workflow_id", run.WorkflowID, "run_id", item.RunID)
+		return "", ErrWorkflowDisabled
+	}
+	if qErr := d.Journal.CheckWorkflowEnqueueAllowed(ctx, run.WorkflowID); qErr != nil {
+		var qe *journal.QuotaError
+		if errors.As(qErr, &qe) {
+			return "", qErr
+		}
+		d.Log.Warn("dispatcher: dlq retry quota check failed; allowing", "err", qErr)
+	}
+	if allowed, limit, rErr := d.Journal.CheckWorkflowRateLimit(ctx, run.WorkflowID); rErr != nil {
+		d.Log.Warn("dispatcher: dlq retry rate-limit check failed; allowing", "err", rErr)
+	} else if !allowed {
+		d.Log.Info("dispatcher: refusing dlq retry; rate limit",
+			"workflow_id", run.WorkflowID, "limit_per_min", limit)
+		return "", ErrRateLimited
+	}
+
 	slug, err := d.Resolver.WorkflowSlugByID(ctx, run.WorkflowID)
 	if err != nil {
 		return "", fmt.Errorf("dispatcher: resolve workflow: %w", err)
@@ -210,12 +242,36 @@ func (d *Dispatcher) RetryDeadLetter(ctx context.Context, dlqID string) (string,
 		return "", fmt.Errorf("dispatcher: binary lookup: %w", err)
 	}
 
-	// Restore the run to "running" so the supervisor's terminal-status
-	// flip writes the right value. The dead_letter row stays until the
-	// retry actually succeeds (deleted below on success).
-	if err := d.Journal.SetRunStatus(ctx, item.RunID, "running"); err != nil {
-		return "", fmt.Errorf("dispatcher: reset run status: %w", err)
+	// Take the slot before mutating any state, so a full pool sheds the retry
+	// instead of claiming the run and then failing.
+	if !d.acquire() {
+		d.Log.Warn("dispatcher: at capacity; rejecting dlq retry", "max", d.MaxConcurrent)
+		return "", ErrCapacity
 	}
+	defer d.release()
+
+	// Single-flight claim. The old unguarded SetRunStatus meant two operators
+	// clicking Retry on the same row both flipped it to running and both
+	// spawned a supervisor against the same run id, duplicating side effects.
+	// The CAS also refuses a cancelled run, matching MarkRunFinished.
+	claimed, cErr := d.Journal.StartDeadLetterRetry(ctx, item.RunID)
+	if cErr != nil {
+		return "", fmt.Errorf("dispatcher: claim run for retry: %w", cErr)
+	}
+	if !claimed {
+		return "", ErrRetryInFlight
+	}
+
+	d.inFlight.Add(1)
+	defer d.inFlight.Done()
+	d.mu.Lock()
+	d.count++
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		d.count--
+		d.mu.Unlock()
+	}()
 
 	sup := d.Sup
 	sup.BinaryPath = binary
@@ -230,17 +286,12 @@ func (d *Dispatcher) RetryDeadLetter(ctx context.Context, dlqID string) (string,
 		sup.Mode = "live"
 	}
 
-	// Decouple the run from the caller's context. RetryDeadLetter is
-	// invoked from an HTTP handler; without this a browser disconnect
-	// (which cancels r.Context()) would kill the workflow mid-step.
-	// WithoutCancel keeps context values but drops cancellation/deadline.
-	runCtx := context.WithoutCancel(ctx)
-	status, runErr := sup.Run(runCtx)
-	if runErr != nil {
-		return status, fmt.Errorf("dispatcher: retry run: %w", runErr)
-	}
+	// execute() owns the cancellable+registered context, the panic recovery and
+	// the terminal hooks. It also decouples the run from the caller's context,
+	// so a browser disconnect no longer kills the workflow mid-step.
+	status := d.execute(item.RunID, slug, run.WorkflowID, run.TriggerKind, sup)
 	if status == "succeeded" {
-		if err := d.Journal.DeleteDeadLetter(runCtx, dlqID); err != nil && !errors.Is(err, journal.ErrNotFound) {
+		if err := d.Journal.DeleteDeadLetter(context.WithoutCancel(ctx), dlqID); err != nil && !errors.Is(err, journal.ErrNotFound) {
 			d.Log.Warn("dispatcher: dlq cleanup failed", "err", err)
 		}
 	}
@@ -508,7 +559,9 @@ func (d *Dispatcher) lastStepOutput(ctx context.Context, runID string) json.RawM
 // worker (ExecuteRun). It does NOT own the concurrency slot, the inFlight
 // WaitGroup, or the count gauge -- the caller wraps those so single-node
 // drain semantics stay exactly as before.
-func (d *Dispatcher) execute(runID, slug, workflowID, triggerKind string, sup supervisor.Supervisor) {
+// Returns the terminal status so the synchronous caller (the dashboard's
+// dead-letter retry) can report it without a second journal read.
+func (d *Dispatcher) execute(runID, slug, workflowID, triggerKind string, sup supervisor.Supervisor) (terminal string) {
 	// Recover so a panicking workflow supervisor (or any callback) fails
 	// just this run instead of taking down the daemon/worker and every
 	// other in-flight run with it.
@@ -519,6 +572,7 @@ func (d *Dispatcher) execute(runID, slug, workflowID, triggerKind string, sup su
 			if d.Journal != nil {
 				_ = d.Journal.MarkRunFinished(context.Background(), runID, "failed")
 			}
+			terminal = "failed"
 		}
 	}()
 	// Fresh, cancellable, registered context so an operator can stop the
@@ -570,6 +624,7 @@ func (d *Dispatcher) execute(runID, slug, workflowID, triggerKind string, sup su
 	if d.Counters != nil && status != "" && status != "suspended" {
 		d.Counters.IncRunsTerminal(status)
 	}
+	return status
 }
 
 // ExecuteRun is the distributed-mode worker entry point: it reconstructs a
