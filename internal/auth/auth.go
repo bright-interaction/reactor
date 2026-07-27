@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -718,6 +719,13 @@ func VerifyPassword(stored, plaintext string) bool {
 		if err != nil {
 			return false
 		}
+		// Cost floor. The verifier recomputes with whatever m/t/p the stored
+		// PHC carries, so an ancient or tampered weak hash would silently
+		// downgrade the KDF to something GPU-crackable. Fail closed and make
+		// the operator re-hash; the default is far above this.
+		if params.m < MinArgon2MemKiB || params.t < MinArgon2Time {
+			return false
+		}
 		got := argon2.IDKey([]byte(plaintext), salt, params.t, params.m, params.p, uint32(len(hash)))
 		return constTimeEqualBytes(got, hash)
 	}
@@ -742,6 +750,15 @@ func constTimeEqualBytes(a, b []byte) bool {
 	return v == 0
 }
 
+// OWASP-minimum argon2id cost this package will accept at verify time. Below
+// this a stored PHC is treated as invalid (fail closed) rather than silently
+// downgrading the KDF. Exported so the HTTP layer shares one floor instead of
+// keeping a second copy that can drift.
+const (
+	MinArgon2MemKiB uint32 = 19456 // 19 MiB
+	MinArgon2Time   uint32 = 2
+)
+
 type argon2idParams struct {
 	m uint32
 	t uint32
@@ -759,9 +776,11 @@ func parseArgon2idPHC(s string) (argon2idParams, []byte, []byte, error) {
 		if !ok {
 			return argon2idParams{}, nil, nil, fmt.Errorf("auth: bad param %q", kv)
 		}
-		var n uint64
-		if _, err := fmt.Sscanf(v, "%d", &n); err != nil {
-			return argon2idParams{}, nil, nil, err
+		// strconv, not fmt.Sscanf: Sscanf accepts a leading-numeric prefix and
+		// reports no error on trailing garbage.
+		n, err := strconv.ParseUint(v, 10, 32)
+		if err != nil {
+			return argon2idParams{}, nil, nil, fmt.Errorf("auth: parse param %q: %w", kv, err)
 		}
 		switch k {
 		case "m":
@@ -769,8 +788,19 @@ func parseArgon2idPHC(s string) (argon2idParams, []byte, []byte, error) {
 		case "t":
 			p.t = uint32(n)
 		case "p":
+			if n == 0 || n > 255 {
+				return argon2idParams{}, nil, nil, errors.New("auth: p out of range")
+			}
 			p.p = uint8(n)
+		default:
+			return argon2idParams{}, nil, nil, fmt.Errorf("auth: unknown param %q", k)
 		}
+	}
+	// argon2.IDKey PANICS when time < 1 or threads < 1, so these are an
+	// availability guard as much as a correctness one: a typo in the operator's
+	// env hash would otherwise take down every login attempt.
+	if p.m == 0 || p.t == 0 || p.p == 0 {
+		return argon2idParams{}, nil, nil, errors.New("auth: missing required parameter")
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
@@ -878,4 +908,16 @@ func isUniqueErr(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
+}
+
+// EncodeArgon2idPHCForTest builds a PHC string at explicit costs. Exported for
+// tests that need a hash BELOW the production floor, which HashPassword will
+// never produce.
+func EncodeArgon2idPHCForTest(password string, salt []byte, m, t uint32, p uint8) string {
+	hash := argon2.IDKey([]byte(password), salt, t, m, p, 32)
+	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s",
+		m, t, p,
+		base64.RawStdEncoding.EncodeToString(salt),
+		base64.RawStdEncoding.EncodeToString(hash),
+	)
 }
