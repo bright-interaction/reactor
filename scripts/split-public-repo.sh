@@ -105,9 +105,26 @@ for p in "${STRIP_PATHS[@]}"; do
 done
 
 echo "Build-checking the mirror ..."
+# `cmd && echo OK` does NOT fail the script when cmd fails, even under `set -e`:
+# bash exempts every command in an AND-OR list except the last, so a broken build
+# printed nothing and the publish sailed on to the push. slab's mirror failed to
+# link against DuckDB on musl and this gate said nothing at all; only the push
+# being rejected revealed the run was unhealthy. Check the status explicitly.
 if command -v go >/dev/null 2>&1; then
-  ( cd "$CLONE" && go build ./... ) && echo "  builds standalone: OK"
-  ( cd "$CLONE" && go test -run='^$' ./... >/dev/null ) && echo "  tests compile: OK"
+  if ( cd "$CLONE" && go build ./... ); then
+    echo "  builds standalone: OK"
+  else
+    echo "REFUSING: the filtered mirror does not build standalone." >&2
+    echo "  A public repo that cannot compile is not publishable. Either a stripped path" >&2
+    echo "  is still referenced, or the build needs a toolchain this container lacks." >&2
+    exit 1
+  fi
+  if ( cd "$CLONE" && go test -run='^$' ./... >/dev/null ); then
+    echo "  tests compile: OK"
+  else
+    echo "REFUSING: the filtered mirror's tests do not compile." >&2
+    exit 1
+  fi
 else
   echo "  (go not found; skipping build check)" >&2
 fi
