@@ -165,8 +165,14 @@ func (r *Receiver) handle(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if err := r.verifyHMAC(ctx, trig, provider, req.Header, body); err != nil {
+		// The full reason goes to the log (operator-only). The trigger row gets
+		// a FIXED string, never err.Error(): this branch is reachable by anyone
+		// who learns the webhook token, which is semi-public (it lives in the
+		// URL held by the upstream provider), so echoing the parse error would
+		// let an unauthenticated caller write text of their choosing into
+		// last_error and have the dashboard render it back to the operator.
 		r.Log.Warn("webhook: hmac verify failed", "trigger_id", trig.ID, "provider", provider, "err", err)
-		_ = r.Journal.MarkTriggerError(ctx, trig.ID, "hmac: "+err.Error())
+		_ = r.Journal.MarkTriggerError(ctx, trig.ID, "hmac: signature verification failed (see daemon logs for the reason)")
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}

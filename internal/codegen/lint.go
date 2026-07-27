@@ -53,6 +53,8 @@ var bannedImports = map[string]string{
 //   - import of "math/rand", "math/rand/v2", "os/exec", "syscall", "unsafe"
 //   - call to time.Sleep (use flow.Sleep)
 //   - call to time.Now  (deterministic replay; record times inside Step closures)
+//   - call to os.StartProcess (process spawning; the os/exec import denial
+//     means nothing while plain "os" is allowlisted)
 //   - call to panic (use reactor.Permanent / Retryable wrappers)
 //   - em dashes anywhere in the source
 func Lint(src []byte, path string) []Issue {
@@ -212,6 +214,18 @@ func inspectCalls(n ast.Node, fset *token.FileSet, path string, issues *[]Issue,
 					Path: path, Line: pos.Line, Col: pos.Column,
 					Rule:    RuleBannedCall,
 					Message: "time.Sleep forbidden; use flow.Sleep(ctx, name, duration)",
+				})
+			case ident.Name == "os" && sel.Sel.Name == "StartProcess":
+				// Banned everywhere, not just the workflow body. The import
+				// denylist blocks os/exec, syscall and os/signal to deny a
+				// workflow process reach, but plain "os" is allowlisted as
+				// stdlib and os.StartProcess does exactly the same thing, so
+				// without this the denylist is one identifier from bypassed.
+				pos := fset.Position(call.Pos())
+				*issues = append(*issues, Issue{
+					Path: path, Line: pos.Line, Col: pos.Column,
+					Rule:    RuleBannedCall,
+					Message: "os.StartProcess forbidden; spawning processes is denied for workflows (see the os/exec + syscall import denylist)",
 				})
 			case funcLitDepth == 0 && ident.Name == "time" && sel.Sel.Name == "Now":
 				addBodyOnly(call, fset, path, issues, "time.Now",
