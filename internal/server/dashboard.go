@@ -365,6 +365,14 @@ func renderDAGSummary(src string) string {
 
 // knowledge renders the topic-faceted list of corpus entries.
 func (s *Server) knowledge(w http.ResponseWriter, r *http.Request) {
+	// Belt and braces behind the route-group gate. Mount authorization is
+	// POSITIONAL -- a route is admin-only only because its mount call sits
+	// inside the r.Group block -- so moving one line would silently reopen the
+	// post-mortems corpus to every member. /postmortems gates in-handler for
+	// the same reason.
+	if !requireAdmin(w, r) {
+		return
+	}
 	entries, err := s.Knowledge.List(r.Context(), "")
 	if err != nil {
 		s.errorPage(w, "list knowledge", err)
@@ -417,6 +425,10 @@ func knowledgeListBody(entries []knowledge.Entry) string {
 // knowledgeDetail renders a single entry with its frontmatter +
 // markdown body + (TODO Ship 5) which generations cited it.
 func (s *Server) knowledgeDetail(w http.ResponseWriter, r *http.Request) {
+	// See s.knowledge: the corpus is untenanted and includes post-mortems.
+	if !requireAdmin(w, r) {
+		return
+	}
 	id := chi.URLParam(r, "id")
 	entry, err := s.Knowledge.Get(r.Context(), id)
 	if err != nil {
