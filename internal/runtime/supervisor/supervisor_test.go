@@ -66,7 +66,15 @@ func newTestSupervisorEnv(t *testing.T, runID string) (*Supervisor, *journal.Jou
 
 	logBuf := &slog.Logger{}
 	_ = logBuf
-	logger := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelError}))
+	// Warn, not Error. The supervisor forwards the workflow subprocess's stderr
+	// through stderrForwarder, which logs at WARN, so an Error threshold threw
+	// away the only explanation of why a workflow failed. Six of these tests
+	// have been red on GitHub Actions and green everywhere else (alpine, glibc,
+	// the published mirror, a CPU-constrained runner all pass), and the CI
+	// output says nothing beyond "status = failed, want succeeded" because of
+	// this line. go test only prints t.Log output for FAILING tests, so this
+	// costs nothing on a green run and gives the whole picture on a red one.
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	sup := &Supervisor{
 		WorkflowSlug:     "test-replay",
