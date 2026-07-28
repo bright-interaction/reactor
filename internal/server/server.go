@@ -328,6 +328,11 @@ func (s *Server) Mount(r chi.Router) {
 	s.mountReadRoutes(r)
 	s.mountManualDispatchRoute(r)
 	s.mountRunCancelRoute(r)
+	// Knowledge reads are member-visible again, but TENANT-SCOPED in the
+	// handlers: the corpus mixes shared playbooks (no tenant, everyone) with
+	// per-tenant post-mortems (stamped from the run). Gating the whole page to
+	// admins closed the leak by removing the feature; scoping keeps both.
+	s.mountKnowledgeRoutes(r)
 	s.mountWebhookRoutes(r)
 	s.mountAuthRoutes(r)
 	s.mountTenantsRoutes(r)
@@ -358,12 +363,6 @@ func (s *Server) Mount(r chi.Router) {
 		// the admin gate already applied to the identical MCP query_graph tool
 		// two lines up. Same data, same gate.
 		s.mountGraphRoute(ar)
-		// The knowledge corpus has NO tenant concept (no column, no filter, no
-		// parameter) and its topics include "post-mortems", whose bodies carry
-		// another tenant's workflow slug, step names and step error text.
-		// /postmortems already refuses a member; /knowledge served the same
-		// corpus on the member router. Same data, same gate.
-		s.mountKnowledgeRoutes(ar)
 		s.mountVaultRoutes(ar)
 		s.mountCredentialOpRoutes(ar)
 		s.mountWorkflowEditRoutes(ar)

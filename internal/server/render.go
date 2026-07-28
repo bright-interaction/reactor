@@ -37,7 +37,7 @@ var navItems = []navItem{
 	// Secondary -- grouped under "More".
 	{"/connections", "Connections", "Workspace", false},
 	{"/credentials", "Credentials", "Workspace", false},
-	{"/knowledge", "Knowledge base", "Workspace", true},
+	{"/knowledge", "Knowledge base", "Workspace", false},
 	{"/notifications", "Notifications", "Workspace", true},
 	{"/oauth-providers", "OAuth providers", "Workspace", true},
 	{"/postmortems", "Post-mortems", "Monitor", true},

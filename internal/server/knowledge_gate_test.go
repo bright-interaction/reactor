@@ -11,120 +11,124 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/bright-interaction/reactor/internal/auth"
 	"github.com/bright-interaction/reactor/internal/knowledge"
-	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
-// knowledgeFixture writes one post-mortem entry naming another tenant's
-// workflow, step and error text -- exactly what the generator emits from a
-// failed run (see internal/postmortem).
+// knowledgeFixture writes two entries: one shared playbook with no tenant, and
+// one post-mortem stamped to another tenant, carrying the workflow slug, step
+// name and step error text the generator emits (see internal/postmortem).
 func knowledgeFixture(t *testing.T) *knowledge.Store {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "post-mortems"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	body := `---
-id: km_1
-topic: post-mortems
-title: acme-payroll run failed
-created_by: reactor
----
-
-Root cause: workflow acme-payroll step charge-card failed with
-err="stripe 402 card_declined for customer cus_TENANTB_SECRET"
-`
-	if err := os.WriteFile(filepath.Join(root, "post-mortems", "km_1.md"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	ks, err := knowledge.New(root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx := context.Background()
+	if _, err := ks.Add(ctx, knowledge.Entry{
+		Frontmatter: knowledge.Frontmatter{
+			Topic: "playbooks", Title: "How to write a workflow", CreatedBy: "seed",
+		},
+		Body: "shared guidance every tenant should read",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ks.Add(ctx, knowledge.Entry{
+		Frontmatter: knowledge.Frontmatter{
+			Topic: "post-mortems", Title: "acme-payroll run failed",
+			CreatedBy: "claude", Tenant: "tenant-b",
+		},
+		Body: `Root cause: workflow acme-payroll step charge-card failed with
+err="stripe 402 card_declined for customer cus_TENANTB_SECRET"`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.MkdirAll(filepath.Join(root, "post-mortems"), 0o700)
 	return ks
 }
 
-// TestKnowledgeReadsAreAdminGated pins a cross-tenant read leak.
+// TestKnowledgeIsTenantScopedNotAdminOnly pins the corpus boundary.
 //
-// /postmortems gates on requireAdmin, but /knowledge and /knowledge/{id} serve
-// the SAME corpus and were mounted on the member router. internal/knowledge has
-// no tenant concept at all (no column, no filter, no parameter), and s.knowledge
-// calls List(ctx, "") with no topic filter, so the member view included topic
-// "post-mortems" -- whose bodies carry another tenant's workflow slug, step
-// names and truncated step error text.
+// The leak: /postmortems gates on requireAdmin, but /knowledge served the SAME
+// corpus from the member router with no filter, so a member saw every tenant's
+// post-mortem bodies. The blunt fix (admin-gate the page) closed it by deleting
+// a feature members are supposed to have, since the corpus is what workflow
+// authors read.
 //
-// Same shape as the /graph.json-vs-query_graph inconsistency: identical data,
-// two mount points, one gate. Authorization in Mount is POSITIONAL, so asserting
-// on middleware depth catches a future move that reading the source would not.
-func TestKnowledgeReadsAreAdminGated(t *testing.T) {
+// The rule instead: untenanted entries are shared and everyone sees them;
+// entries stamped with a tenant belong to that tenant. Post-mortems are stamped
+// from the run, so the sensitive material scopes while the playbooks stay
+// shared.
+func TestKnowledgeIsTenantScopedNotAdminOnly(t *testing.T) {
 	t.Parallel()
-	s := &Server{
-		Journal:   &journal.Journal{},
-		Knowledge: knowledgeFixture(t),
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-	}
-	r := chi.NewRouter()
-	s.Mount(r)
+	s := &Server{Knowledge: knowledgeFixture(t), Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
-	depth := map[string]int{}
-	if err := chi.Walk(r, func(method, route string, _ http.Handler, mws ...func(http.Handler) http.Handler) error {
-		depth[method+" "+route] = len(mws)
-		return nil
-	}); err != nil {
-		t.Fatalf("walk routes: %v", err)
+	get := func(u *auth.User) (int, string) {
+		req := httptest.NewRequest(http.MethodGet, "/knowledge", nil)
+		if u != nil {
+			req = req.WithContext(withUser(req.Context(), *u))
+		}
+		rec := httptest.NewRecorder()
+		s.knowledge(rec, req)
+		return rec.Code, rec.Body.String()
 	}
 
-	memberDepth, ok := depth["GET /runs"]
-	if !ok {
-		t.Fatal("/runs is not registered; it is the member reference route")
+	member := auth.User{ID: "m", Role: auth.RoleMember, TenantID: "tenant-a"}
+	code, body := get(&member)
+	if code != http.StatusOK {
+		t.Fatalf("member got %d from /knowledge, want 200; the corpus must stay readable rather than be gated away", code)
 	}
-	for _, route := range []string{"GET /knowledge", "GET /knowledge/{id}"} {
-		d, ok := depth[route]
-		if !ok {
-			t.Fatalf("%s is not registered; wire s.Knowledge in this test", route)
-		}
-		if d <= memberDepth {
-			t.Fatalf("%s middleware depth %d must exceed the member-route depth %d (it serves the post-mortems corpus, which /postmortems already admin-gates)", route, d, memberDepth)
-		}
+	if strings.Contains(body, "acme-payroll") || strings.Contains(body, "cus_TENANTB_SECRET") {
+		t.Fatal("CROSS-TENANT LEAK: member in tenant-a saw tenant-b's post-mortem through /knowledge")
+	}
+	if !strings.Contains(body, "How to write a workflow") {
+		t.Fatal("member cannot see the shared playbook; scoping must not hide untenanted entries")
+	}
+
+	admin := auth.User{ID: "a", Role: auth.RoleAdmin, TenantID: "tenant-a"}
+	if code, body := get(&admin); code != http.StatusOK || !strings.Contains(body, "acme-payroll") {
+		t.Fatalf("admin got %d and cannot see the tenant post-mortem; an unscoped viewer must see everything", code)
 	}
 }
 
-// TestKnowledgeDoesNotLeakPostmortemsToMembers is the functional half: a member
-// must not be able to read another tenant's post-mortem body through the
-// knowledge corpus.
-func TestKnowledgeDoesNotLeakPostmortemsToMembers(t *testing.T) {
+// TestKnowledgeDetailIsTenantScoped: guessing an id must not reach across the
+// boundary either, and the answer is 404 rather than 403 so existence is not
+// confirmed.
+func TestKnowledgeDetailIsTenantScoped(t *testing.T) {
 	t.Parallel()
 	ks := knowledgeFixture(t)
 	s := &Server{Knowledge: ks, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
-	// Sanity: the corpus really holds the post-mortem, so a pass cannot come
-	// from an empty fixture.
-	if entries, err := ks.List(context.Background(), ""); err != nil || len(entries) == 0 {
-		t.Fatalf("fixture not loaded: entries=%d err=%v", len(entries), err)
+	entries, err := ks.List(context.Background(), "post-mortems")
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("fixture not loaded: %d entries, err=%v", len(entries), err)
 	}
+	id := entries[0].Frontmatter.ID
 
-	member := auth.User{ID: "m", Role: auth.RoleMember, TenantID: "tenant-a"}
-	req := httptest.NewRequest(http.MethodGet, "/knowledge", nil)
-	req = req.WithContext(withUser(req.Context(), member))
+	req := httptest.NewRequest(http.MethodGet, "/knowledge/"+id, nil)
+	req = req.WithContext(withUser(req.Context(), auth.User{ID: "m", Role: auth.RoleMember, TenantID: "tenant-a"}))
+	req = withChiParam(req, "id", id)
 	rec := httptest.NewRecorder()
-	s.knowledge(rec, req)
+	s.knowledgeDetail(rec, req)
 
-	if rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), "acme-payroll") {
-		t.Fatalf("member (tenant-a) read another tenant's post-mortem through /knowledge (%d); /postmortems correctly refuses the same data", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("member fetched another tenant's entry directly: got %d, want 404", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "cus_TENANTB_SECRET") {
+		t.Fatal("the other tenant's body leaked through the detail view")
 	}
 }
 
-// TestKnowledgeNavIsAdminOnly keeps the nav honest: a member must not be shown
-// a link they will only get a 403 from.
-func TestKnowledgeNavIsAdminOnly(t *testing.T) {
+// TestKnowledgeNavIsMemberVisible: the corpus is a member feature again, so the
+// nav must show it. A link members cannot use is the failure mode the admin
+// gate introduced.
+func TestKnowledgeNavIsMemberVisible(t *testing.T) {
 	t.Parallel()
 	for _, it := range navItems {
 		if it.href == "/knowledge" {
-			if !it.adminOnly {
-				t.Fatal("/knowledge is in the nav as member-visible but its routes are admin-gated; members would see a link that 403s")
+			if it.adminOnly {
+				t.Fatal("/knowledge is admin-only in the nav, but its handlers are tenant-scoped and member-readable")
 			}
 			return
 		}

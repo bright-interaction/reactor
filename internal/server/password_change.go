@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -17,10 +18,13 @@ import (
 // check a stolen session cookie could take the account over outright by
 // rotating the password out from under its owner.
 //
-// On success every session for the user is destroyed (including this one), so
-// the browser lands on /login. That is the intended behaviour: a rotate usually
-// happens because the old password may be known to someone else, and leaving
-// other cookies alive would keep their access open.
+// On success every OTHER session for the user is destroyed and this one is
+// re-minted, so the operator stays signed in where they are while any session
+// somebody else holds is closed. That is the security-relevant half: a rotate
+// usually happens because the old password may be known to someone else, and
+// leaving their cookies alive would keep that access open. Signing the user out
+// of their own browser too adds nothing and is a worse experience, which is how
+// people end up avoiding the rotate.
 func (s *Server) accountChangePassword(w http.ResponseWriter, r *http.Request) {
 	if s.Auth == nil {
 		http.Error(w, "user accounts are not configured on this deployment", http.StatusServiceUnavailable)
@@ -58,12 +62,24 @@ func (s *Server) accountChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sessions are gone; clear the cookie so the browser stops sending it.
-	http.SetCookie(w, &http.Cookie{
-		Name: SessionCookieName, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, SameSite: http.SameSiteStrictMode,
-	})
-	http.Redirect(w, r, "/login?changed=1", http.StatusSeeOther)
+	// ChangePassword revoked EVERY session, including the one making this
+	// request. Mint a fresh one so this browser stays signed in; every other
+	// session (and anyone holding the old password) is now locked out.
+	cookie, cErr := s.Auth.CreateSession(r.Context(), u.ID, r.UserAgent(), clientIP(r), 7*24*time.Hour)
+	if cErr != nil {
+		// The password DID change; only the convenience re-login failed. Clear
+		// the dead cookie and send them to sign in rather than leaving the
+		// browser holding a revoked session.
+		s.Log.Warn("password changed but re-issuing the session failed", "user", u.ID, "err", cErr)
+		http.SetCookie(w, &http.Cookie{
+			Name: SessionCookieName, Value: "", Path: "/", MaxAge: -1,
+			HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		})
+		http.Redirect(w, r, "/login?changed=1", http.StatusSeeOther)
+		return
+	}
+	s.setSessionCookie(w, r, cookie)
+	http.Redirect(w, r, "/account?password=changed", http.StatusSeeOther)
 }
 
 func (s *Server) renderAccountPasswordError(w http.ResponseWriter, r *http.Request, msg string) {
@@ -124,7 +140,7 @@ func accountPasswordForm(authWired bool, username string) string {
 	}
 	var b strings.Builder
 	b.WriteString(`<h2>Password</h2>`)
-	fmt.Fprintf(&b, `<p class="muted">Signed in as <code>%s</code>. Changing your password signs you out of every session, including this one.</p>`,
+	fmt.Fprintf(&b, `<p class="muted">Signed in as <code>%s</code>. Changing your password signs out every OTHER session you have; you stay signed in here.</p>`,
 		template.HTMLEscapeString(username))
 	b.WriteString(`<form method="POST" action="/account/password" class="form">
   <label>Current password <input type="password" name="current_password" required autocomplete="current-password"></label>

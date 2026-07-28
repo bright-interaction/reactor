@@ -412,3 +412,47 @@ func SetClockForTest(fn func() time.Time) (restore func()) {
 	nowFnPtr.Store(&fn)
 	return func() { nowFnPtr.Store(prev) }
 }
+
+// visibleToTenant reports whether an entry is readable by a viewer scoped to
+// tenant. An empty scope is the admin/global view and sees everything; an
+// entry with no tenant is shared material and is visible to everyone.
+func visibleToTenant(e Entry, tenant string) bool {
+	if tenant == "" {
+		return true
+	}
+	return e.Frontmatter.Tenant == "" || e.Frontmatter.Tenant == tenant
+}
+
+// ListForTenant is List scoped to a viewer. Pass "" for the unscoped
+// admin view. Use this for anything reachable by a member: the corpus mixes
+// shared playbooks with per-tenant post-mortems, and List returns both.
+func (s *Store) ListForTenant(ctx context.Context, topic, tenant string) ([]Entry, error) {
+	all, err := s.List(ctx, topic)
+	if err != nil {
+		return nil, err
+	}
+	if tenant == "" {
+		return all, nil
+	}
+	out := all[:0]
+	for _, e := range all {
+		if visibleToTenant(e, tenant) {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+// GetForTenant is Get scoped to a viewer. Returns ErrNotFound (never a
+// permission error) when the entry belongs to another tenant, so guessing an
+// id cannot confirm that it exists.
+func (s *Store) GetForTenant(ctx context.Context, id, tenant string) (Entry, error) {
+	e, err := s.Get(ctx, id)
+	if err != nil {
+		return Entry{}, err
+	}
+	if !visibleToTenant(e, tenant) {
+		return Entry{}, ErrNotFound
+	}
+	return e, nil
+}

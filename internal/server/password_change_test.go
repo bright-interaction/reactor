@@ -1,12 +1,14 @@
 package server
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bright-interaction/reactor/internal/auth"
 )
@@ -78,3 +80,61 @@ func TestAccountChangePasswordRejectsMismatch(t *testing.T) {
 // reaches need a body; anything else would panic loudly rather than silently
 // pass. The mismatch check runs before any store call, so nothing is invoked.
 type stubPasswordAdmin struct{ AuthAdmin }
+
+// changeOKAdmin accepts the change and mints a session, so the handler's
+// post-change cookie behaviour can be observed.
+type changeOKAdmin struct {
+	AuthAdmin
+	created int
+}
+
+func (a *changeOKAdmin) ChangePassword(context.Context, string, string, string) error { return nil }
+func (a *changeOKAdmin) CreateSession(context.Context, string, string, string, time.Duration) (string, error) {
+	a.created++
+	return "fresh-session-value", nil
+}
+
+// TestPasswordChangeKeepsThisSession pins the UX half of the rotate.
+//
+// ChangePassword revokes EVERY session, which is the security-relevant part:
+// whoever may know the old password loses their cookies. But signing the
+// operator out of their own browser as well adds nothing, and a rotate that
+// logs you out is a rotate people avoid doing. So the handler re-mints THIS
+// session and the browser stays signed in.
+func TestPasswordChangeKeepsThisSession(t *testing.T) {
+	t.Parallel()
+	adm := &changeOKAdmin{}
+	s := &Server{Auth: adm, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	form := "current_password=old-password&new_password=a-new-password&confirm_password=a-new-password"
+	req := httptest.NewRequest(http.MethodPost, "/account/password", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = req.WithContext(withUser(req.Context(), auth.User{ID: "u1", Username: "alice"}))
+	rec := httptest.NewRecorder()
+	s.accountChangePassword(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	if adm.created != 1 {
+		t.Fatalf("CreateSession called %d times, want 1; the current session must be re-minted", adm.created)
+	}
+	var sess *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			sess = c
+		}
+	}
+	if sess == nil {
+		t.Fatal("no session cookie was set after the change")
+	}
+	if sess.MaxAge < 0 || sess.Value == "" {
+		t.Fatalf("the session cookie was CLEARED (value=%q maxage=%d); the operator would be signed out of their own browser", sess.Value, sess.MaxAge)
+	}
+	if !sess.HttpOnly || sess.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("the re-minted cookie lost its hardening: httponly=%v samesite=%v", sess.HttpOnly, sess.SameSite)
+	}
+	if loc := rec.Header().Get("Location"); loc == "/login?changed=1" {
+		t.Fatal("redirected to /login; the user should land back on their account still signed in")
+	}
+}
