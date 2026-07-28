@@ -29,6 +29,14 @@ STRIP_PATHS=(
   # The private deep-audit report: names internal infra (host env-file paths,
   # the deploy cutover runbook, dockyard/sentinel/flare). Kept private.
   SECURITY-AUDIT-2026-07-07.md
+  # The 2026-07-27 full-surface audit. Stripped for two reasons. It references
+  # the private monorepo layout (automations/.git/config, automations/CLAUDE.md
+  # in finding 0), which is noise outside that repo. More importantly it is a
+  # working exploitation roadmap for findings the CURRENTLY PUBLISHED tag still
+  # has: v0.1.0 carries all thirteen unfixed, so publishing the analysis before
+  # users can upgrade arms attackers against every existing installation.
+  # Revisit once a fixed tag is what `@latest` resolves to.
+  AUDIT-2026-07-27.md
 )
 
 for arg in "$@"; do
