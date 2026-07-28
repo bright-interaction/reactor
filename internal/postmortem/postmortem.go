@@ -110,7 +110,12 @@ func (g *Generator) Generate(ctx context.Context, runID string) (string, error) 
 	body := renderBody(pm, run, slug)
 	entry, err := g.Knowledge.Add(ctx, knowledge.Entry{
 		Frontmatter: knowledge.Frontmatter{
-			Topic:     "post-mortems",
+			Topic: "post-mortems",
+			// Scope the entry to the run's tenant. The body names the workflow
+			// slug, its step names and truncated step error text, so an
+			// unstamped post-mortem is readable by every tenant on /knowledge.
+			// Empty stays global, which is right for a single-tenant install.
+			Tenant:    run.TenantID,
 			Title:     pm.Title,
 			CreatedBy: "claude",
 			Sources:   []string{"run:" + runID, "workflow:" + slug},
