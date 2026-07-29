@@ -26,9 +26,22 @@ SPLIT_BRANCH="reactor-public-split"
 # Internal-ONLY files (not code): stripped from the mirror's entire history.
 # Paths are relative to reactor/ (the subtree split strips the prefix).
 STRIP_PATHS=(
-  # The private deep-audit report: names internal infra (host env-file paths,
-  # the deploy cutover runbook, dockyard/sentinel/flare). Kept private.
+  # The private deep-audit reports: they name internal infra (host env-file
+  # paths, the deploy cutover runbook, dockyard/sentinel/flare) and, worse,
+  # findings that are still open. Kept private.
+  #
+  # Every new audit filename MUST be added here. filter-repo --path takes exact
+  # paths, not globs, so nothing covers a new report automatically, and moving
+  # it out of reactor/ on main does NOT help: git subtree split rebuilds the
+  # payload from subtree HISTORY, so the commit that added it still carries it
+  # into the public repo. Only a strip entry rewrites it out of every commit.
+  # This exact hole was found open on pare on 2026-07-29, one queued publish
+  # away from shipping four open findings on a live product.
   SECURITY-AUDIT-2026-07-07.md
+  # Not on main yet: lives on agent/reactor-audit-fixes-2026-07-25 and records
+  # 13 findings from the 2026-07-27 pass with NO fixes applied, including
+  # cross-tenant leaks. Listed ahead of the merge so it can never publish.
+  AUDIT-2026-07-27.md
 )
 
 for arg in "$@"; do
