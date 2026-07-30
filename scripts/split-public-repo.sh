@@ -67,6 +67,7 @@ cd "$ROOT"
 # authoritative gate.
 # shellcheck source=../../scripts/mirror-secret-preflight.sh
 . "$ROOT/scripts/mirror-secret-preflight.sh"
+. "$ROOT/scripts/mirror-enterprise-check.sh"
 # shellcheck source=../../scripts/mirror-module-path.sh
 . "$ROOT/scripts/mirror-module-path.sh"
 mirror_secret_preflight "$PREFIX" "$ROOT/$PREFIX/scripts/mirror-secret-allowlist.txt"
@@ -118,6 +119,12 @@ mirror_redaction_check "$CLONE" "$ROOT" "$ROOT/reactor/scripts/mirror-redactions
 # Blobs that text redaction cannot fix: a committed binary or archive, or a
 # maintainer home path baked into build metadata. Nothing at HEAD reveals these.
 mirror_blob_sanity_check "$CLONE" "$ROOT/reactor/scripts/mirror-blob-allowlist.txt"
+
+# Refuse closed-source code in the mirror, at HEAD and in history. A no-op for
+# products that ship no enterprise surface, which is most of them; wired in
+# anyway so a product that GAINS one is covered from the first commit rather
+# than after someone remembers to back-port the gate.
+mirror_enterprise_check "$CLONE" || exit 1
 
 
 # Defense in depth: fail if a stripped path survived.
