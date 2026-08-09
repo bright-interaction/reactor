@@ -487,3 +487,24 @@ func (j *Journal) fairDueScheduleQuery() string {
 	ORDER BY k.rn, k.wake_at, k.id
 	LIMIT $3`
 }
+
+// StartDeadLetterRetry claims a run for a dead-letter retry, moving it to
+// "running" only when it is not already executing and was not cancelled.
+// Reports whether the claim was won.
+//
+// The retry path used the unguarded SetRunStatus, so two operators clicking
+// "Retry from DLQ" on the same row (or one double-click) both flipped the run
+// to running and both spawned a supervisor against the SAME run id, duplicating
+// every side effect the failed step had not yet completed. The compare-and-set
+// makes the retry single-flight, and excluding "cancelled" keeps the
+// resurrect-a-cancelled-run guard that MarkRunFinished and ResumeSuspendedRun
+// already enforce on their own paths.
+func (j *Journal) StartDeadLetterRetry(ctx context.Context, runID string) (bool, error) {
+	const q = `UPDATE runs SET status = 'running' WHERE id = $1 AND status NOT IN ('running', 'cancelled')`
+	res, err := j.db.ExecContext(ctx, j.bind(q), runID)
+	if err != nil {
+		return false, fmt.Errorf("journal: start dead-letter retry: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}

@@ -24,7 +24,7 @@ import (
 func buildTestWorkflow(t *testing.T) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "testworkflow")
-	cmd := exec.Command("go", "build", "-o", out, "./testworkflow")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, "./testworkflow")
 	cmd.Dir = "."
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr

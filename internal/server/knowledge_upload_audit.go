@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/bright-interaction/reactor/internal/credentials"
+	"github.com/bright-interaction/reactor/internal/dispatcher"
 	"github.com/bright-interaction/reactor/internal/runtime/journal"
 )
 
@@ -30,6 +31,20 @@ func (s *Server) dlqRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	status, err := s.DLQRetry.RetryDeadLetter(r.Context(), id)
 	if err != nil {
+		// A refused retry is not a server fault. Funnelling these into
+		// errorPage rendered "Something went wrong" with a 500 and put the real
+		// reason in the daemon log only, so an operator could not tell "enable
+		// the workflow" from "the daemon is broken". Map each expected refusal
+		// to its own status and say what to do about it.
+		//
+		// Importing dispatcher for the sentinels is the same thing
+		// internal/runtime/webhook already does for ErrRateLimited/ErrCapacity;
+		// dispatcher does not import server (that is why Counters is declared
+		// as a local interface there), so there is no cycle.
+		if msg, code, ok := dlqRefusal(err); ok {
+			http.Error(w, msg, code)
+			return
+		}
 		s.errorPage(w, "dlq retry ("+id+", status="+status+")", err)
 		return
 	}
@@ -403,4 +418,24 @@ func splitTags(s string) []string {
 		}
 	}
 	return out
+}
+
+// dlqRefusal maps an EXPECTED dead-letter retry refusal to an operator-facing
+// message and status. Returns ok=false for anything else, which stays a 500 so
+// a genuine fault is never dressed up as a policy decision.
+func dlqRefusal(err error) (msg string, code int, ok bool) {
+	var qe *journal.QuotaError
+	switch {
+	case errors.Is(err, dispatcher.ErrWorkflowDisabled):
+		return "this workflow is disabled, so the retry was refused; enable it on the workflow page and retry again", http.StatusConflict, true
+	case errors.Is(err, dispatcher.ErrRetryInFlight):
+		return "this run is already executing (another retry claimed it) or was cancelled; reload the run page to see its current state", http.StatusConflict, true
+	case errors.Is(err, dispatcher.ErrCapacity):
+		return "the daemon is at capacity, so no new run was started; retry when in-flight runs have drained", http.StatusTooManyRequests, true
+	case errors.Is(err, dispatcher.ErrRateLimited):
+		return "this workflow is over its per-minute rate limit; retry shortly, or raise the limit on the workflow page", http.StatusTooManyRequests, true
+	case errors.As(err, &qe):
+		return "tenant quota reached, so the retry was refused: " + qe.Reason, http.StatusTooManyRequests, true
+	}
+	return "", 0, false
 }

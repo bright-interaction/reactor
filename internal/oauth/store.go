@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/bright-interaction/reactor/internal/safehttp"
 	"github.com/bright-interaction/reactor/internal/vault"
 )
 
@@ -121,7 +122,13 @@ func New(db *sql.DB, engine Engine, masterKey []byte) *Store {
 		db:        db,
 		engine:    engine,
 		masterKey: masterKey,
-		http:      &http.Client{Timeout: 20 * time.Second},
+		// safehttp, not a bare client: it refuses redirects (so a hostile or
+		// compromised provider cannot 302 the token request into the internal
+		// network) and always blocks link-local, which includes the cloud
+		// metadata endpoint. allowPrivate is true because secureURL
+		// deliberately permits an http provider on loopback for self-hosted
+		// and local-dev setups; the metadata block holds either way.
+		http:      safehttp.Client(true),
 		now:       time.Now,
 	}
 }

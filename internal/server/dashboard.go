@@ -365,7 +365,10 @@ func renderDAGSummary(src string) string {
 
 // knowledge renders the topic-faceted list of corpus entries.
 func (s *Server) knowledge(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.Knowledge.List(r.Context(), "")
+	// Tenant-scoped, not admin-gated: viewerScope is "" for an admin (sees
+	// everything) and the member's tenant otherwise. Untenanted entries are
+	// shared material and stay visible to all.
+	entries, err := s.Knowledge.ListForTenant(r.Context(), "", viewerScope(r))
 	if err != nil {
 		s.errorPage(w, "list knowledge", err)
 		return
@@ -418,7 +421,9 @@ func knowledgeListBody(entries []knowledge.Entry) string {
 // markdown body + (TODO Ship 5) which generations cited it.
 func (s *Server) knowledgeDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	entry, err := s.Knowledge.Get(r.Context(), id)
+	// Scoped fetch: another tenant's entry returns ErrNotFound, never a
+	// permission error, so guessing an id cannot confirm it exists.
+	entry, err := s.Knowledge.GetForTenant(r.Context(), id, viewerScope(r))
 	if err != nil {
 		if errors.Is(err, knowledge.ErrNotFound) {
 			http.Error(w, "knowledge entry not found", http.StatusNotFound)

@@ -193,3 +193,53 @@ func TestGenerateReturnsErrorOnEmptyToolUse(t *testing.T) {
 		t.Fatal("expected error on empty postmortem")
 	}
 }
+
+// TestGenerateStampsTheRunTenant is the linchpin of the knowledge corpus's
+// tenant boundary.
+//
+// A post-mortem body names the workflow slug, its step names and truncated step
+// error text. The corpus treats an UNTENANTED entry as shared material readable
+// by every tenant (that is what keeps the seeded playbooks visible), so if the
+// generator does not stamp the run's tenant, every failure detail is global by
+// default and the scoping in /knowledge silently protects nothing.
+func TestGenerateStampsTheRunTenant(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	j, store, closer := freshJournalAndKnowledge(t)
+	defer closer()
+
+	if err := j.CreateWorkflowInTenant(ctx, "wf_acme", "acme-payroll", "", "0.1.0", json.RawMessage(`{}`), "acme"); err != nil {
+		t.Fatal(err)
+	}
+	runID := "run_acme_dlq"
+	if err := j.CreateRun(ctx, runID, "wf_acme", "manual", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.MoveStepToDeadLetter(ctx, runID, "charge-card", "stripe 402", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.MarkRunFinished(ctx, runID, "failed_dlq"); err != nil {
+		t.Fatal(err)
+	}
+
+	g := &Generator{
+		Anthropic: &fakeAnthropic{pm: Postmortem{
+			Title:          "Wrap 4xx as Permanent",
+			Summary:        "s", RootCause: "r", Lesson: "l", Recommendation: "rec",
+		}},
+		Journal:   j,
+		Knowledge: store,
+	}
+	id, err := g.Generate(ctx, runID)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	entry, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Frontmatter.Tenant != "acme" {
+		t.Fatalf("post-mortem tenant = %q, want %q; an unstamped entry is GLOBAL, so every tenant would read this run's failure detail on /knowledge",
+			entry.Frontmatter.Tenant, "acme")
+	}
+}

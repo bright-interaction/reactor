@@ -204,7 +204,7 @@ func cmdWorkflowBuild(args []string) error {
 		}
 		return fmt.Errorf("workflow build: %d lint issue(s); fix them before building", len(issues))
 	}
-	cmd := exec.Command("go", "build", "-o", out, ".")
+	cmd := exec.Command("go", "build", codegen.BuildVCSFlag, "-o", out, ".")
 	cmd.Dir = *src
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr

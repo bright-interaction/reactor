@@ -85,8 +85,10 @@ macOS / FreeBSD: prlimit no-op; rely on the outer container or VM.
 
 - HTTPS via `--tls-cert` / `--tls-key`, or behind a reverse proxy that
   sets `X-Forwarded-Proto: https`.
-- SecurityHeaders middleware: CSP (`script-src 'none'` because the
-  dashboard's Cytoscape island reads from `/assets/`), X-Frame-Options
+- SecurityHeaders middleware: CSP (`script-src 'self'`, which is what the
+  dashboard's Cytoscape island under `/assets/` needs; inline scripts stay
+  blocked, so DAG data rides a `<script type="application/json">` island
+  rather than an inline block), X-Frame-Options
   DENY, X-Content-Type-Options nosniff, Referrer-Policy
   strict-origin-when-cross-origin, Permissions-Policy that nukes
   camera/mic/geo, HSTS when TLS.
