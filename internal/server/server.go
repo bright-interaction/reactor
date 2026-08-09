@@ -328,6 +328,10 @@ func (s *Server) Mount(r chi.Router) {
 	s.mountReadRoutes(r)
 	s.mountManualDispatchRoute(r)
 	s.mountRunCancelRoute(r)
+	// Knowledge reads are member-visible again, but TENANT-SCOPED in the
+	// handlers: the corpus mixes shared playbooks (no tenant, everyone) with
+	// per-tenant post-mortems (stamped from the run). Gating the whole page to
+	// admins closed the leak by removing the feature; scoping keeps both.
 	s.mountKnowledgeRoutes(r)
 	s.mountWebhookRoutes(r)
 	s.mountAuthRoutes(r)
@@ -424,6 +428,11 @@ func (s *Server) mountAuthRoutes(r chi.Router) {
 	r.Post("/users/{id}/disable", s.usersDisable)
 	r.Post("/users/{id}/enable", s.usersEnable)
 	r.Post("/users/{id}/delete", s.usersDelete)
+	// Password reset (admin, gated in-handler) + self-service change. Without
+	// these the login page's "ask an admin to mint a fresh one" was a promise
+	// no surface could keep.
+	r.Post("/users/{id}/password", s.usersSetPassword)
+	r.Post("/account/password", s.accountChangePassword)
 
 	// Second-factor challenge at login (reachable by a pending session only).
 	r.Get("/login/mfa", s.mfaChallenge)

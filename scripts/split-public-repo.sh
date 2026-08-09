@@ -38,9 +38,13 @@ STRIP_PATHS=(
   # This exact hole was found open on pare on 2026-07-29, one queued publish
   # away from shipping four open findings on a live product.
   SECURITY-AUDIT-2026-07-07.md
-  # Not on main yet: lives on agent/reactor-audit-fixes-2026-07-25 and records
-  # 13 findings from the 2026-07-27 pass with NO fixes applied, including
-  # cross-tenant leaks. Listed ahead of the merge so it can never publish.
+  # The 2026-07-27 full-surface audit. Stripped for two reasons. It references
+  # the private monorepo layout (automations/.git/config, automations/CLAUDE.md
+  # in finding 0), which is noise outside that repo. More importantly it is a
+  # working exploitation roadmap for findings the CURRENTLY PUBLISHED tag still
+  # has: v0.1.0 carries all thirteen unfixed, so publishing the analysis before
+  # users can upgrade arms attackers against every existing installation.
+  # Revisit once a fixed tag is what `@latest` resolves to.
   AUDIT-2026-07-27.md
 )
 

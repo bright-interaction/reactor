@@ -26,8 +26,14 @@ import (
 // third-party dependency. New fields go through this type and the
 // matching parse/encode functions below.
 type Frontmatter struct {
-	ID              string    `yaml:"id"`
-	Topic           string    `yaml:"topic"`
+	ID    string `yaml:"id"`
+	Topic string `yaml:"topic"`
+	// Tenant scopes an entry. EMPTY means global: the seeded playbooks and
+	// anything an admin authors estate-wide, readable by every tenant. A
+	// non-empty value belongs to that tenant alone. Automatic post-mortems are
+	// stamped from the run, which is what keeps one tenant's failure detail
+	// (workflow slug, step names, step error text) out of another's view.
+	Tenant          string    `yaml:"tenant,omitempty"`
 	Title           string    `yaml:"title"`
 	CreatedAt       time.Time `yaml:"created_at"`
 	CreatedBy       string    `yaml:"created_by"` // seed | claude | operator
@@ -103,6 +109,8 @@ func setFrontmatterField(fm *Frontmatter, key, val string) error {
 		fm.ID = unquote(val)
 	case "topic":
 		fm.Topic = unquote(val)
+	case "tenant":
+		fm.Tenant = unquote(val)
 	case "title":
 		fm.Title = unquote(val)
 	case "created_by":
@@ -207,6 +215,7 @@ func encodeFrontmatter(fm Frontmatter, body string) []byte {
 	b.WriteString("---\n")
 	writeStringField(&b, "id", fm.ID)
 	writeStringField(&b, "topic", fm.Topic)
+	writeStringField(&b, "tenant", fm.Tenant)
 	writeStringField(&b, "title", fm.Title)
 	if !fm.CreatedAt.IsZero() {
 		fmt.Fprintf(&b, "created_at: %s\n", fm.CreatedAt.UTC().Format(time.RFC3339))

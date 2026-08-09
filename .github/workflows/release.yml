@@ -27,7 +27,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          # Must match the Dockerfile FROM tag: that pin exists to pick up a
+          # specific stdlib CVE fix, and a CI toolchain older than it builds
+          # green against a stdlib the shipped artifacts do not have.
+          # Guarded by TestCIGoVersionMatchesDockerfile.
+          go-version: "1.26.5"
           cache: true
 
       - name: build
@@ -80,7 +84,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: reactor-packages
-          path: dist/*.deb
+          # Block scalar: a plain multi-line scalar folds to the single glob
+          # "dist/*.deb dist/*.rpm", which matches nothing, so the packages
+          # silently never reached the release.
+          path: |
+            dist/*.deb
             dist/*.rpm
 
   release:

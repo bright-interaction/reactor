@@ -427,7 +427,7 @@ func (v *GoBuildValidator) Validate(ctx context.Context, dir string, in EmitInpu
 	if out, err := run(ctx, gobin, dir, "vet", "./..."); err != nil {
 		return fmt.Errorf("go vet: %w\n%s", err, out)
 	}
-	if out, err := run(ctx, gobin, dir, "build", "./..."); err != nil {
+	if out, err := run(ctx, gobin, dir, "build", BuildVCSFlag, "./..."); err != nil {
 		return fmt.Errorf("go build: %w\n%s", err, out)
 	}
 
