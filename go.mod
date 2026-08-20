@@ -4,10 +4,11 @@ go 1.25.10
 
 // Pinned to the toolchain the container image already builds with. Without this,
 // go.mod permits an older Go and govulncheck reports the standard-library
-// vulnerabilities fixed in 1.26.5 (crypto/tls Encrypted Client Hello leak,
-// net/textproto, crypto/x509, net/http/httputil) as reachable. The pin makes the
+// vulnerabilities fixed in 1.26.6 (net/http ReadHeaderTimeout on the unencrypted
+// HTTP/2 check, encoding/xml and encoding/asn1 decode recursion, x/net/idna
+// Punycode label rejection) as reachable. The pin makes the
 // version that keeps this safe a guarantee rather than a property of the base image.
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc
